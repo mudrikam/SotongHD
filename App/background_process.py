@@ -162,7 +162,6 @@ class ImageProcessor:
             f"Selesai! Berhasil: {self.total_processed}, Gagal: {self.total_failed}",
             percentage=100
         )
-        
     def process_image(self, file_path: str, current_num: int, total_files: int) -> Dict:
         """
         Proses satu file gambar
@@ -183,12 +182,41 @@ class ImageProcessor:
             "start_time": datetime.now()
         }
         
+        # Definisi distribusi persentase setiap tahap proses
+        # Total harus 100%
+        percentages = {
+            "browser_setup": 5,     # 0-5%: Setup browser
+            "upload": 10,           # 5-15%: Upload gambar
+            "processing": 65,       # 15-80%: Menunggu proses enhancement
+            "downloading": 15,      # 80-95%: Download hasil
+            "saving": 5             # 95-100%: Menyimpan & finalisasi
+        }
+        
+        # Offset persentase untuk file saat ini dalam keseluruhan proses
+        # Misal: jika ada 4 file, file ke-2 akan mulai dari 25% dan berakhir di 50%
+        file_percent_size = 100 / total_files
+        file_start_percent = (current_num - 1) * file_percent_size
+        
+        # Function untuk menghitung persentase global
+        def calculate_global_percent(stage_percent):
+            # Konversi persentase tahap (0-100) ke persentase global (sesuai posisi file)
+            local_percent = stage_percent / 100 * file_percent_size
+            return int(file_start_percent + local_percent)
+        
         try:
+            # ===== TAHAP 1: Setup Browser (0-5%) =====
+            self.update_progress(
+                f"Mempersiapkan browser untuk file {Path(file_path).name}", 
+                percentage=calculate_global_percent(percentages["browser_setup"] / 2),
+                current=current_num, 
+                total=total_files
+            )
+            
             # Konfigurasi browser untuk headless mode
             chrome_options = Options()
             chrome_options.add_argument("--headless=new")
             chrome_options.add_argument("--disable-gpu")
-            chrome_options.add_argument("--window-size=1920,1080")
+            chrome_options.add_argument("--window-size=1366,768")
             chrome_options.add_argument("--log-level=3")
             chrome_options.add_experimental_option('excludeSwitches', ['enable-logging'])
 
@@ -197,20 +225,45 @@ class ImageProcessor:
             
             try:
                 # Buka halaman Picsart AI Image Enhancer
-                self.update_progress(f"Membuka browser untuk file {Path(file_path).name}", current=current_num, total=total_files)
+                self.update_progress(
+                    f"Membuka situs untuk file {Path(file_path).name}", 
+                    percentage=calculate_global_percent(percentages["browser_setup"]),
+                    current=current_num, 
+                    total=total_files
+                )
+                
                 driver.get("https://picsart.com/id/ai-image-enhancer/")
                 time.sleep(2)  # Tunggu halaman dan elemen render
 
+                # ===== TAHAP 2: Upload Gambar (5-15%) =====
+                self.update_progress(
+                    f"Mengunggah gambar: {Path(file_path).name}", 
+                    percentage=calculate_global_percent(percentages["browser_setup"] + percentages["upload"] / 2),
+                    current=current_num, 
+                    total=total_files
+                )
+                
                 # Cari elemen input type="file" (biasanya disembunyikan oleh CSS)
                 input_file = driver.find_element(By.XPATH, "//input[@type='file']")
                 
                 # Upload file ke elemen input
                 input_file.send_keys(file_path)
+                time.sleep(1)  # Beri waktu untuk upload selesai
 
-                self.update_progress(f"File dikirim: {Path(file_path).name}", current=current_num, total=total_files)
+                self.update_progress(
+                    f"File berhasil diunggah: {Path(file_path).name}", 
+                    percentage=calculate_global_percent(percentages["browser_setup"] + percentages["upload"]),
+                    current=current_num, 
+                    total=total_files
+                )
                 
-                # Tunggu sampai element dengan data-testid="EnhancedImage" muncul
-                self.update_progress(f"Menunggu proses enhancement: {Path(file_path).name}", current=current_num, total=total_files)
+                # ===== TAHAP 3: Menunggu Proses Enhancement (15-80%) =====
+                self.update_progress(
+                    f"Menunggu proses enhancement: {Path(file_path).name}", 
+                    percentage=calculate_global_percent(percentages["browser_setup"] + percentages["upload"] + 5),
+                    current=current_num, 
+                    total=total_files
+                )
                 
                 # Implementasi retry logic dengan timeout keseluruhan
                 max_wait_time = 300  # 5 menit total
@@ -219,17 +272,24 @@ class ImageProcessor:
                 found_image = False
                 image_url = None
                 
+                # Menunggu gambar muncul
+                processing_percent_range = percentages["processing"] - 5  # Dikurangi 5 yang sudah digunakan di atas
+                
                 while time.time() - start_time < max_wait_time and not found_image and not self.should_stop:
                     try:
-                        # Hitung persentase progress dari waktu pemrosesan
+                        # Hitung persentase progress berdasarkan waktu yang telah berlalu
                         elapsed = time.time() - start_time
-                        # Asumsikan proses enhancement membutuhkan sekitar 60 detik
-                        process_percent = min(95, int(elapsed / 60 * 100))
-                        overall_percent = int(((current_num - 1) / total_files * 100) + (process_percent / total_files))
+                        elapsed_percent = min(100, int(elapsed / 60 * 100))  # 60 detik = 100%
+                        
+                        # Konversi ke persentase dalam range tahap pemrosesan
+                        process_stage_percent = (elapsed_percent / 100) * processing_percent_range
+                        
+                        # Update progress dengan persentase global
+                        stage_percent = percentages["browser_setup"] + percentages["upload"] + 5 + process_stage_percent
                         
                         self.update_progress(
                             f"Memproses enhancement: {Path(file_path).name} ({int(elapsed)} detik)", 
-                            percentage=overall_percent,
+                            percentage=calculate_global_percent(stage_percent),
                             current=current_num, 
                             total=total_files
                         )
@@ -271,7 +331,13 @@ class ImageProcessor:
                     return result
                     
                 if not found_image:
-                    self.update_progress(f"Gagal memproses: {Path(file_path).name}", current=current_num, total=total_files)
+                    self.update_progress(
+                        f"Gagal memproses: {Path(file_path).name}", 
+                        percentage=calculate_global_percent(percentages["browser_setup"] + percentages["upload"] + percentages["processing"]),
+                        current=current_num, 
+                        total=total_files
+                    )
+                    
                     result["error"] = "Tidak dapat menemukan gambar hasil enhancement dalam batas waktu"
                     # Ambil screenshot sebagai bukti
                     screenshot_path = os.path.join(os.path.dirname(file_path), "UPSCALE", f"error_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png")
@@ -279,11 +345,27 @@ class ImageProcessor:
                     driver.save_screenshot(screenshot_path)
                     return result
                 
-                self.update_progress(f"Gambar enhancement ditemukan: {Path(file_path).name}", current=current_num, total=total_files)
+                # ===== TAHAP 4: Download Gambar (80-95%) =====
+                self.update_progress(
+                    f"Gambar enhancement ditemukan, mengunduh: {Path(file_path).name}", 
+                    percentage=calculate_global_percent(percentages["browser_setup"] + percentages["upload"] + percentages["processing"]),
+                    current=current_num, 
+                    total=total_files
+                )
                 
                 # Download image
                 response = requests.get(image_url, stream=True)
+                
                 if response.status_code == 200:
+                    # Persiapan download
+                    self.update_progress(
+                        f"Mengunduh gambar enhancement: {Path(file_path).name}", 
+                        percentage=calculate_global_percent(percentages["browser_setup"] + percentages["upload"] + percentages["processing"] + percentages["downloading"] / 2),
+                        current=current_num, 
+                        total=total_files
+                    )
+                    
+                    # ===== TAHAP 5: Menyimpan Gambar (95-100%) =====
                     # Buat nama file dengan timestamp
                     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                     file_name = Path(file_path).stem
@@ -294,15 +376,36 @@ class ImageProcessor:
                     
                     # Simpan file
                     enhanced_path = os.path.join(output_folder, f"{file_name}_upscaled_{timestamp}.png")
+                    
+                    self.update_progress(
+                        f"Menyimpan gambar: {Path(enhanced_path).name}", 
+                        percentage=calculate_global_percent(100 - percentages["saving"]),
+                        current=current_num, 
+                        total=total_files
+                    )
+                    
                     with open(enhanced_path, 'wb') as f:
                         for chunk in response.iter_content(1024):
                             f.write(chunk)
                     
-                    self.update_progress(f"Gambar berhasil diunduh: {Path(enhanced_path).name}", current=current_num, total=total_files)
+                    # Proses selesai untuk file ini
+                    self.update_progress(
+                        f"Gambar berhasil disimpan: {Path(enhanced_path).name}", 
+                        percentage=calculate_global_percent(100),
+                        current=current_num, 
+                        total=total_files
+                    )
+                    
                     result["success"] = True
                     result["enhanced_path"] = enhanced_path
                 else:
-                    self.update_progress(f"Gagal mengunduh gambar. Status code: {response.status_code}", current=current_num, total=total_files)
+                    self.update_progress(
+                        f"Gagal mengunduh gambar. Status code: {response.status_code}", 
+                        percentage=calculate_global_percent(percentages["browser_setup"] + percentages["upload"] + percentages["processing"] + percentages["downloading"]),
+                        current=current_num, 
+                        total=total_files
+                    )
+                    
                     result["error"] = f"Gagal mengunduh gambar. Status code: {response.status_code}"
             finally:
                 driver.quit()
