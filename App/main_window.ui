@@ -69,8 +69,7 @@
             Script ini hanya mengunggah gambar ke situs Picsart dan menggunakan fitur upscale otomatis di sana.
 
             Upscale tidak dilakukan oleh aplikasi ini, tapi oleh server Picsart.
-            Hasil akan disimpan otomatis ke folder 'UPSCALE' sumber file asli. 
-            Fitur gratis Picsart hanya mendukung hingga 2x upscale. Gunakan seperlunya.
+            Hasil akan disimpan otomatis ke folder 'UPSCALE' sumber file asli. Fitur gratis Picsart hanya mendukung hingga 2x upscale. Gunakan seperlunya.
             </string>
            </property>
            <property name="alignment">

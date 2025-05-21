@@ -1,6 +1,6 @@
 import os
 import sys
-from PySide6.QtWidgets import QApplication, QMainWindow, QWidget, QMessageBox
+from PySide6.QtWidgets import QApplication, QMainWindow, QWidget, QMessageBox, QProgressBar, QVBoxLayout
 from PySide6.QtUiTools import QUiLoader
 from PySide6.QtGui import QIcon, QPixmap, QPainter, QImageReader, QDragEnterEvent, QDropEvent
 from PySide6.QtCore import Qt, QRect, QPoint, QMimeData, QUrl
@@ -75,6 +75,31 @@ class SotongHDApp(QMainWindow):
         self.subtitleLabel = self.ui.findChild(QWidget, "subtitleLabel")
           # Current displayed image (for processing)
         self.current_image = None
+        
+        # Create progress bar
+        self.progress_bar = QProgressBar(self.bg_widget)
+        self.progress_bar.setTextVisible(True)
+        self.progress_bar.setFormat("Ready")
+        self.progress_bar.setValue(0)
+        self.progress_bar.setStyleSheet("""
+            QProgressBar {
+                border: none;
+                border-radius: 10px;
+                background-color: rgba(161, 161, 161, 0.08);
+                text-align: center;
+                color: #333;
+                font-weight: bold;
+                margin: 0px;
+                padding: 0px;
+                height: 30px;
+            }
+            QProgressBar::chunk {
+                background-color: #5720e3;
+                border-radius: 10px;
+            }
+        """)
+        self.progress_bar.show()  # Initially visible with "Ready"
+        
         if self.dropFrame:
             self.dropFrame.setParent(self.bg_widget)
             
@@ -127,6 +152,9 @@ class SotongHDApp(QMainWindow):
         self.bg_widget.installEventFilter(self)
           # Show the main window
         self.show()
+        
+        # Update progress bar position
+        self.update_progress_bar_position()
     
     def dragEnterEvent(self, event: QDragEnterEvent):
         """Handle when dragged items enter the window"""
@@ -206,6 +234,25 @@ class SotongHDApp(QMainWindow):
                 
             self.current_image = pixmap
             
+            # Show progress bar for demonstration
+            self.progress_bar.setValue(0)
+            self.progress_bar.setFormat("Processing image... %p%")
+            self.progress_bar.show()
+            
+            # Here you would implement actual processing with progress updates
+            # For demo, we'll just simulate progress
+            QApplication.processEvents()
+            for i in range(1, 101):
+                self.progress_bar.setValue(i)
+                QApplication.processEvents()
+                # Simulate processing time
+                import time
+                time.sleep(0.02)  # Add a small delay to see the progress
+            
+            # Set to Ready when done but keep visible
+            self.progress_bar.setValue(100)
+            self.progress_bar.setFormat("Done")
+            
             # Show a message with the file path
             file_name = Path(image_path).name
             QMessageBox.information(
@@ -214,27 +261,28 @@ class SotongHDApp(QMainWindow):
                 f"Image loaded successfully: {file_name}\n\nSize: {pixmap.width()}x{pixmap.height()} pixels"
             )
             
-            # Here you could implement the image enhancement functionality
-            # For example:
-            # enhanced_image = self.enhance_image(pixmap)
-            # self.display_enhanced_image(enhanced_image)
+            # Reset progress bar to Ready state after processing
+            self.progress_bar.setValue(0)
+            self.progress_bar.setFormat("Ready")
             
         except Exception as e:
+            self.progress_bar.setFormat("Error")
             QMessageBox.critical(self, "Error", f"An error occurred processing the image: {str(e)}")
     
     def update_drop_frame_geometry(self):
         """Update the drop frame geometry to be dynamic with window size."""
         if self.dropFrame:
-            # Calculate new size with margins on all sides
+            # Calculate new size with margins on all sides, but leave space for progress bar
+            progress_bar_height = 40  # Height of progress bar + some margin
             width = self.width() - (self.margin * 2)
-            height = self.height() - (self.margin * 2)
+            height = self.height() - (self.margin * 2) - progress_bar_height
             
             # Set the geometry with margins
             self.dropFrame.setGeometry(
                 self.margin,  # X position (left margin)
                 self.margin,  # Y position (top margin)
                 width,        # Width (window width minus left and right margins)
-                height        # Height (window height minus top and bottom margins)
+                height        # Height (window height minus margins and progress bar space)
             )
             
             # Update label positions if needed
@@ -243,6 +291,35 @@ class SotongHDApp(QMainWindow):
             
             if hasattr(self, 'subtitleLabel') and self.subtitleLabel:
                 self.subtitleLabel.setGeometry(50, 110, self.dropFrame.width() - 100, 100)
+                
+            # Update progress bar position - now directly below the drop area
+            self.update_progress_bar_position()
+    
+    def update_progress_bar_position(self):
+        """Position the progress bar below the drop area."""
+        progress_height = 30
+        
+        if self.dropFrame:
+            self.progress_bar.setGeometry(
+                self.margin,  # X position (same as drop frame)
+                self.dropFrame.y() + self.dropFrame.height() + 10,  # Y position (just below drop frame)
+                self.width() - (self.margin * 2),  # Width (same as drop frame)
+                progress_height  # Height
+            )
+        else:
+            # Fallback if dropFrame doesn't exist
+            self.progress_bar.setGeometry(
+                self.margin,
+                self.height() - progress_height - 10,
+                self.width() - (self.margin * 2),
+                progress_height
+            )
+        
+        # Make sure progress bar is visible with initial "Ready" message
+        self.progress_bar.setValue(0)
+        self.progress_bar.setFormat("Ready")
+        self.progress_bar.show()
+    
     def center_on_screen(self):
         """Center the window on the screen."""
         screen_geometry = QApplication.primaryScreen().geometry()
@@ -258,6 +335,7 @@ class SotongHDApp(QMainWindow):
             # Keep components positioned correctly when window is resized
             if hasattr(self, 'dropFrame') and self.dropFrame:
                 self.update_drop_frame_geometry()
+                self.update_progress_bar_position()
                 
         return super().eventFilter(obj, event)
 
