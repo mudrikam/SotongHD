@@ -4,7 +4,7 @@ setlocal enabledelayedexpansion
 REM =====================================================================
 REM Launcher Script
 REM Author: Mudrikul Hikam
-REM Last Updated: May 20, 2025
+REM Last Updated: May 22, 2025
 REM 
 REM This script performs the following tasks:
 REM 1. If Python folder exists, directly runs main.py
