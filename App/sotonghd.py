@@ -7,7 +7,7 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QMessageBox, 
                               QHBoxLayout, QGridLayout, QScrollArea)
 from PySide6.QtUiTools import QUiLoader
 from PySide6.QtGui import QIcon, QPixmap, QPainter, QImageReader, QDragEnterEvent, QDropEvent
-from PySide6.QtCore import Qt, QRect, QPoint, QMimeData, QUrl, Signal, QObject
+from PySide6.QtCore import Qt, QRect, QPoint, QMimeData, QUrl, Signal, QObject, QTimer
 from pathlib import Path
 from .background_process import ImageProcessor
 
@@ -246,11 +246,10 @@ class SotongHDApp(QMainWindow):
                 stats = self.image_processor.get_statistics()
                 self.show_statistics(stats)
         else:
-            # Thread masih berjalan, cek lagi nanti
+            # Thread masih berjalan, gunakan timer untuk cek lagi nanti
             QApplication.processEvents()
-            QApplication.instance().processEvents()
-            time.sleep(0.1)  # Jeda kecil untuk tidak membebani CPU
-            self.check_processor_thread()
+            from PySide6.QtCore import QTimer
+            QTimer.singleShot(100, self.check_processor_thread)
     
     def show_statistics(self, stats):
         """Tampilkan dialog statistik"""
