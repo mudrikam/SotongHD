@@ -82,8 +82,42 @@
          </item>
         </layout>
        </widget>
-      </item>
-     </layout>
+      </item>     </layout>
+    </item>
+    <item>
+     <widget class="QProgressBar" name="progressBar">
+      <property name="minimumSize">
+       <size>
+        <width>0</width>
+        <height>30</height>
+       </size>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">QProgressBar {
+  border: none;
+  border-radius: 10px;
+  background-color: rgba(161, 161, 161, 0.08);
+  text-align: center;
+  font-weight: bold;
+  margin: 0px;
+  padding: 0px;
+  height: 30px;
+}
+QProgressBar::chunk {
+  background-color: #5720e3;
+  border-radius: 10px;
+}</string>
+      </property>
+      <property name="value">
+       <number>0</number>
+      </property>
+      <property name="textVisible">
+       <bool>true</bool>
+      </property>
+      <property name="format">
+       <string>Ready</string>
+      </property>
+     </widget>
     </item>
    </layout>
   </widget>

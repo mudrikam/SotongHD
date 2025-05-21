@@ -1,0 +1,180 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>StatsDialog</class>
+ <widget class="QDialog" name="StatsDialog">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>600</width>
+    <height>400</height>
+   </rect>
+  </property>
+  <property name="minimumSize">
+   <size>
+    <width>600</width>
+    <height>400</height>
+   </size>
+  </property>
+  <property name="windowTitle">
+   <string>Statistik SotongHD</string>
+  </property>
+  <layout class="QVBoxLayout" name="verticalLayout">
+   <item>
+    <layout class="QHBoxLayout" name="headerLayout">
+     <item>
+      <widget class="QLabel" name="iconLabel">
+       <property name="minimumSize">
+        <size>
+         <width>64</width>
+         <height>64</height>
+        </size>
+       </property>
+       <property name="maximumSize">
+        <size>
+         <width>64</width>
+         <height>64</height>
+        </size>
+       </property>
+       <property name="text">
+        <string/>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QLabel" name="headerText">
+       <property name="text">
+        <string>&lt;h1&gt;SotongHD Report&lt;/h1&gt;</string>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignCenter</set>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </item>
+   <item>
+    <layout class="QGridLayout" name="statsGridLayout">
+     <item row="0" column="0">
+      <widget class="QLabel" name="totalSuccessLabel">
+       <property name="text">
+        <string>&lt;b&gt;Total Gambar Berhasil:&lt;/b&gt;</string>
+       </property>
+      </widget>
+     </item>
+     <item row="0" column="1">
+      <widget class="QLabel" name="totalSuccessValue">
+       <property name="text">
+        <string>0</string>
+       </property>
+      </widget>
+     </item>
+     <item row="1" column="0">
+      <widget class="QLabel" name="totalFailedLabel">
+       <property name="text">
+        <string>&lt;b&gt;Total Gambar Gagal:&lt;/b&gt;</string>
+       </property>
+      </widget>
+     </item>
+     <item row="1" column="1">
+      <widget class="QLabel" name="totalFailedValue">
+       <property name="text">
+        <string>0</string>
+       </property>
+      </widget>
+     </item>
+     <item row="2" column="0">
+      <widget class="QLabel" name="totalFilesLabel">
+       <property name="text">
+        <string>&lt;b&gt;Total File:&lt;/b&gt;</string>
+       </property>
+      </widget>
+     </item>
+     <item row="2" column="1">
+      <widget class="QLabel" name="totalFilesValue">
+       <property name="text">
+        <string>0</string>
+       </property>
+      </widget>
+     </item>
+     <item row="3" column="0">
+      <widget class="QLabel" name="startTimeLabel">
+       <property name="text">
+        <string>&lt;b&gt;Waktu Mulai:&lt;/b&gt;</string>
+       </property>
+      </widget>
+     </item>
+     <item row="3" column="1">
+      <widget class="QLabel" name="startTimeValue">
+       <property name="text">
+        <string>00:00:00</string>
+       </property>
+      </widget>
+     </item>
+     <item row="4" column="0">
+      <widget class="QLabel" name="endTimeLabel">
+       <property name="text">
+        <string>&lt;b&gt;Waktu Selesai:&lt;/b&gt;</string>
+       </property>
+      </widget>
+     </item>
+     <item row="4" column="1">
+      <widget class="QLabel" name="endTimeValue">
+       <property name="text">
+        <string>00:00:00</string>
+       </property>
+      </widget>
+     </item>
+     <item row="5" column="0">
+      <widget class="QLabel" name="durationLabel">
+       <property name="text">
+        <string>&lt;b&gt;Durasi:&lt;/b&gt;</string>
+       </property>
+      </widget>
+     </item>
+     <item row="5" column="1">
+      <widget class="QLabel" name="durationValue">
+       <property name="text">
+        <string>0:00:00</string>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </item>
+   <item>
+    <widget class="QLabel" name="foldersHeaderLabel">
+     <property name="text">
+      <string>&lt;b&gt;Folder yang Diproses:&lt;/b&gt;</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QScrollArea" name="foldersScrollArea">
+     <property name="widgetResizable">
+      <bool>true</bool>
+     </property>
+     <widget class="QWidget" name="scrollAreaWidgetContents">
+      <property name="geometry">
+       <rect>
+        <x>0</x>
+        <y>0</y>
+        <width>580</width>
+        <height>180</height>
+       </rect>
+      </property>
+      <layout class="QVBoxLayout" name="foldersLayout"/>
+     </widget>
+    </widget>
+   </item>
+   <item>
+    <widget class="QPushButton" name="closeButton">
+     <property name="text">
+      <string>Tutup</string>
+     </property>
+    </widget>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>
