@@ -9,7 +9,7 @@ from PySide6.QtUiTools import QUiLoader
 from PySide6.QtGui import QIcon, QPixmap, QPainter, QImageReader, QDragEnterEvent, QDropEvent
 from PySide6.QtCore import Qt, QRect, QPoint, QMimeData, QUrl, Signal, QObject, QTimer
 from pathlib import Path
-from .background_process import ImageProcessor
+from .background_process import ImageProcessor, ProgressSignal
 
 
 class StatsDialog(QDialog):
@@ -81,6 +81,17 @@ class StatsDialog(QDialog):
             self.ui.foldersHeaderLabel.setVisible(False)
             self.ui.foldersScrollArea.setVisible(False)
 
+# Create a progress handler class to receive signals from the background thread
+class ProgressHandler(QObject):
+    def __init__(self, app):
+        super().__init__()
+        self.app = app
+        
+    def handle_progress(self, message, percentage):
+        """Handle progress updates from the background thread"""
+        # This method is called in the main thread via signal/slot
+        self.app.update_progress(message, percentage)
+
 class SotongHDApp(QMainWindow):
     def __init__(self, base_dir, icon_path=None):
         super().__init__()
@@ -117,15 +128,30 @@ class SotongHDApp(QMainWindow):
         self.titleLabel = self.findChild(QWidget, "titleLabel")
         self.subtitleLabel = self.findChild(QWidget, "subtitleLabel")
         self.progress_bar = self.findChild(QProgressBar, "progressBar")
-          
+        
+        # Create progress handler to receive signals
+        self.progress_handler = ProgressHandler(self)
+        
+        # Timer for deferred UI updates to prevent recursive repaints
+        self.update_timer = QTimer()
+        self.update_timer.setSingleShot(True)
+        self.update_timer.timeout.connect(self._update_progress_ui)
+        self.pending_progress_message = None
+        self.pending_progress_percentage = None
+        
         # Current displayed image (for processing)
         self.current_image = None
         
         # Initialize image processor
         chromedriver_path = os.path.join(base_dir, "driver", "chromedriver.exe")
+        
+        # Create a progress signal instance and connect it to our handler
+        self.progress_signal = ProgressSignal()
+        self.progress_signal.progress.connect(self.progress_handler.handle_progress)
+        
         self.image_processor = ImageProcessor(
             chromedriver_path=chromedriver_path,
-            progress_callback=self.update_progress
+            progress_signal=self.progress_signal  # Pass signal instead of callback
         )
         
         # Apply the theme style to drop frame
@@ -140,25 +166,43 @@ class SotongHDApp(QMainWindow):
           
         # Show the main window
         self.show()
+
     def update_progress(self, message, percentage=None):
         """
-        Update progress bar dengan pesan dan persentase.
+        Schedule progress bar update with a message and percentage.
+        Uses a timer to prevent recursive repaints.
         
         Args:
-            message: Pesan untuk ditampilkan
-            percentage: Persentase penyelesaian (0-100)
+            message: Message to display
+            percentage: Completion percentage (0-100)
         """
         if not self.progress_bar:
             return
             
-        if percentage is not None:
-            self.progress_bar.setValue(percentage)
-            self.progress_bar.setFormat(f"{message} - %p%")
-        else:
-            self.progress_bar.setFormat(message)
+        # Store the updated values for use when the timer fires
+        self.pending_progress_message = message
+        self.pending_progress_percentage = percentage
         
-        # Make sure UI updates in real-time
-        QApplication.processEvents()
+        # Restart the timer to update UI shortly
+        # If timer is already active, this will defer the update 
+        # until all pending events are processed
+        if not self.update_timer.isActive():
+            self.update_timer.start(50)  # 50ms delay
+
+    def _update_progress_ui(self):
+        """
+        Actually update the UI with the pending progress information.
+        This is called by the timer to prevent recursive repaints.
+        """
+        if not self.progress_bar:
+            return
+            
+        if self.pending_progress_percentage is not None:
+            self.progress_bar.setValue(self.pending_progress_percentage)
+            self.progress_bar.setFormat(f"{self.pending_progress_message} - %p%")
+        else:
+            self.progress_bar.setFormat(self.pending_progress_message)
+
     def dragEnterEvent(self, event: QDragEnterEvent):
         """Handle when dragged items enter the window"""
         # Check if the dragged data has URLs (file paths)

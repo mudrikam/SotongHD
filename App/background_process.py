@@ -11,18 +11,25 @@ from pathlib import Path
 from typing import List, Dict, Tuple, Callable
 import threading
 import sys
+from PySide6.QtCore import QObject, Signal
+
+# Add a signal class for progress updates
+class ProgressSignal(QObject):
+    progress = Signal(str, int)  # Signal with message and percentage
 
 class ImageProcessor:
-    def __init__(self, chromedriver_path: str = None, progress_callback: Callable = None):
+    def __init__(self, chromedriver_path: str = None, progress_callback: Callable = None, progress_signal: ProgressSignal = None):
         """
         Inisialisasi prosesor gambar
         
         Args:
             chromedriver_path: Path ke chromedriver.exe
-            progress_callback: Callback untuk melaporkan progres ke UI
+            progress_callback: Callback untuk melaporkan progres ke UI (deprecated)
+            progress_signal: Signal untuk melaporkan progres ke UI (recommended)
         """
         self.chromedriver_path = chromedriver_path or os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "driver", "chromedriver.exe")
-        self.progress_callback = progress_callback
+        self.progress_callback = progress_callback  # Keep for backward compatibility
+        self.progress_signal = progress_signal      # New signal-based approach
         self.should_stop = False
         self.processing_thread = None
         self.total_processed = 0
@@ -42,10 +49,13 @@ class ImageProcessor:
             current: Nomor file saat ini
             total: Total file yang diproses
         """
-        if self.progress_callback:
-            if current is not None and total is not None:
-                message = f"{message} [{current}/{total}]"
-                
+        if current is not None and total is not None:
+            message = f"{message} [{current}/{total}]"
+        
+        # Use signal if available (preferred), otherwise fall back to callback
+        if self.progress_signal:
+            self.progress_signal.progress.emit(message, percentage if percentage is not None else 0)
+        elif self.progress_callback:
             self.progress_callback(message, percentage)
     
     def get_files_to_process(self, paths: List[str]) -> List[str]:
