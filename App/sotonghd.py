@@ -1,10 +1,15 @@
 import os
 import sys
-from PySide6.QtWidgets import QApplication, QMainWindow, QWidget, QMessageBox, QProgressBar, QVBoxLayout
+import time
+from datetime import datetime, timedelta
+from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QMessageBox, QProgressBar, 
+                              QVBoxLayout, QDialog, QLabel, QTextBrowser, QPushButton, QFileDialog,
+                              QHBoxLayout, QGridLayout, QScrollArea)
 from PySide6.QtUiTools import QUiLoader
 from PySide6.QtGui import QIcon, QPixmap, QPainter, QImageReader, QDragEnterEvent, QDropEvent
-from PySide6.QtCore import Qt, QRect, QPoint, QMimeData, QUrl
+from PySide6.QtCore import Qt, QRect, QPoint, QMimeData, QUrl, Signal, QObject
 from pathlib import Path
+from .background_process import ImageProcessor
 
 class BackgroundWidget(QWidget):
     def __init__(self, parent=None):
@@ -36,6 +41,99 @@ class BackgroundWidget(QWidget):
             
             # Draw the image at the calculated position
             painter.drawPixmap(x, y, scaled_pixmap)
+
+
+class StatsDialog(QDialog):
+    """Dialog untuk menampilkan statistik pemrosesan."""
+    
+    def __init__(self, parent=None, stats=None):
+        super().__init__(parent)
+        self.stats = stats
+        self.initUI()
+        
+    def initUI(self):
+        self.setWindowTitle("Statistik SotongHD")
+        self.setMinimumSize(600, 400)
+        self.setWindowIcon(self.parent().windowIcon())
+        
+        # Layout utama
+        layout = QVBoxLayout(self)
+        
+        # Header
+        header_layout = QHBoxLayout()
+        icon_label = QLabel()
+        if self.parent() and self.parent().windowIcon():
+            icon = self.parent().windowIcon()
+            pixmap = icon.pixmap(64, 64)
+            icon_label.setPixmap(pixmap)
+        header_layout.addWidget(icon_label)
+        
+        header_text = QLabel("<h1>SotongHD Report</h1>")
+        header_text.setAlignment(Qt.AlignCenter)
+        header_layout.addWidget(header_text, 1)
+        
+        layout.addLayout(header_layout)
+        
+        # Stats grid
+        grid_layout = QGridLayout()
+        
+        if self.stats:
+            # Total processed
+            grid_layout.addWidget(QLabel("<b>Total Gambar Berhasil:</b>"), 0, 0)
+            grid_layout.addWidget(QLabel(f"{self.stats['total_processed']}"), 0, 1)
+            
+            # Total failed
+            grid_layout.addWidget(QLabel("<b>Total Gambar Gagal:</b>"), 1, 0)
+            grid_layout.addWidget(QLabel(f"{self.stats['total_failed']}"), 1, 1)
+            
+            # Total files
+            total_files = self.stats['total_processed'] + self.stats['total_failed']
+            grid_layout.addWidget(QLabel("<b>Total File:</b>"), 2, 0)
+            grid_layout.addWidget(QLabel(f"{total_files}"), 2, 1)
+            
+            # Time info
+            if self.stats['start_time'] and self.stats['end_time']:
+                start_time = self.stats['start_time'].strftime("%H:%M:%S")
+                end_time = self.stats['end_time'].strftime("%H:%M:%S")
+                
+                grid_layout.addWidget(QLabel("<b>Waktu Mulai:</b>"), 3, 0)
+                grid_layout.addWidget(QLabel(start_time), 3, 1)
+                
+                grid_layout.addWidget(QLabel("<b>Waktu Selesai:</b>"), 4, 0)
+                grid_layout.addWidget(QLabel(end_time), 4, 1)
+                
+                # Duration
+                duration = timedelta(seconds=int(self.stats['total_duration']))
+                grid_layout.addWidget(QLabel("<b>Durasi:</b>"), 5, 0)
+                grid_layout.addWidget(QLabel(str(duration)), 5, 1)
+        else:
+            grid_layout.addWidget(QLabel("Tidak ada data statistik."), 0, 0, 1, 2)
+            
+        layout.addLayout(grid_layout)
+        
+        # Folder list
+        if self.stats and 'processed_folders' in self.stats and self.stats['processed_folders']:
+            layout.addWidget(QLabel("<b>Folder yang Diproses:</b>"))
+            
+            scroll_area = QScrollArea()
+            scroll_area.setWidgetResizable(True)
+            
+            folder_widget = QWidget()
+            folder_layout = QVBoxLayout(folder_widget)
+            
+            for folder in self.stats['processed_folders']:
+                folder_layout.addWidget(QLabel(folder))
+                
+            scroll_area.setWidget(folder_widget)
+            layout.addWidget(scroll_area)
+        
+        # Close button
+        btn_close = QPushButton("Tutup")
+        btn_close.clicked.connect(self.accept)
+        
+        layout.addWidget(btn_close)
+        
+        self.setLayout(layout)
 
 class SotongHDApp(QMainWindow):
     def __init__(self, base_dir, icon_path=None):
@@ -73,8 +171,16 @@ class SotongHDApp(QMainWindow):
         self.dropFrame = self.ui.findChild(QWidget, "dropFrame")
         self.titleLabel = self.ui.findChild(QWidget, "titleLabel")
         self.subtitleLabel = self.ui.findChild(QWidget, "subtitleLabel")
-          # Current displayed image (for processing)
+          
+        # Current displayed image (for processing)
         self.current_image = None
+        
+        # Inisialisasi image processor
+        chromedriver_path = os.path.join(base_dir, "driver", "chromedriver.exe")
+        self.image_processor = ImageProcessor(
+            chromedriver_path=chromedriver_path,
+            progress_callback=self.update_progress
+        )
         
         # Create progress bar
         self.progress_bar = QProgressBar(self.bg_widget)
@@ -87,7 +193,6 @@ class SotongHDApp(QMainWindow):
                 border-radius: 10px;
                 background-color: rgba(161, 161, 161, 0.08);
                 text-align: center;
-                color: #333;
                 font-weight: bold;
                 margin: 0px;
                 padding: 0px;
@@ -150,31 +255,46 @@ class SotongHDApp(QMainWindow):
             
         # Make sure the components stay properly positioned when window is resized
         self.bg_widget.installEventFilter(self)
-          # Show the main window
+          
+        # Show the main window
         self.show()
         
         # Update progress bar position
         self.update_progress_bar_position()
     
+    def update_progress(self, message, percentage=None):
+        """
+        Update progress bar dengan pesan dan persentase.
+        
+        Args:
+            message: Pesan untuk ditampilkan
+            percentage: Persentase penyelesaian (0-100)
+        """
+        if percentage is not None:
+            self.progress_bar.setValue(percentage)
+            self.progress_bar.setFormat(f"{message} - %p%")
+        else:
+            self.progress_bar.setFormat(message)
+        
+        # Make sure UI updates in real-time
+        QApplication.processEvents()
+    
     def dragEnterEvent(self, event: QDragEnterEvent):
         """Handle when dragged items enter the window"""
         # Check if the dragged data has URLs (file paths)
         if event.mimeData().hasUrls():
-            # Check if at least one URL is an image file
-            for url in event.mimeData().urls():
-                file_path = url.toLocalFile()
-                if self.is_image_file(file_path):
-                    event.acceptProposedAction()
-                    if self.dropFrame:
-                        self.dropFrame.setStyleSheet("""
-                            QFrame#dropFrame {
-                                border: 2px dashed rgba(88, 29, 239, 0.5);
-                                border-radius: 15px;
-                                background-color: rgba(88, 29, 239, 0.15);
-                            }
-                        """)
-                    return
+            event.acceptProposedAction()
+            if self.dropFrame:
+                self.dropFrame.setStyleSheet("""
+                    QFrame#dropFrame {
+                        border: 2px dashed rgba(88, 29, 239, 0.5);
+                        border-radius: 15px;
+                        background-color: rgba(88, 29, 239, 0.15);
+                    }
+                """)
+            return
         event.ignore()    
+        
     def dragLeaveEvent(self, event):
         """Handle when dragged items leave the window"""
         if self.dropFrame:
@@ -191,6 +311,7 @@ class SotongHDApp(QMainWindow):
         # We already checked the mime data in dragEnterEvent, so just accept
         if event.mimeData().hasUrls():
             event.acceptProposedAction()    
+            
     def dropEvent(self, event: QDropEvent):
         """Handle when items are dropped into the window"""
         # Reset the dropFrame style
@@ -207,12 +328,14 @@ class SotongHDApp(QMainWindow):
         if event.mimeData().hasUrls():
             event.acceptProposedAction()
             
-            # Get the first valid image file from the dropped URLs
+            file_paths = []
             for url in event.mimeData().urls():
                 file_path = url.toLocalFile()
-                if self.is_image_file(file_path):
-                    self.process_image(file_path)
-                    break
+                # Tambahkan semua file dan folder
+                file_paths.append(file_path)
+            
+            if file_paths:
+                self.process_files(file_paths)
     
     def is_image_file(self, file_path):
         """Check if the file is a valid image that can be loaded"""
@@ -223,51 +346,37 @@ class SotongHDApp(QMainWindow):
         reader = QImageReader(file_path)
         return reader.canRead()
     
-    def process_image(self, image_path):
-        """Process the dropped image"""
-        try:
-            # Load the image
-            pixmap = QPixmap(image_path)
-            if pixmap.isNull():
-                QMessageBox.warning(self, "Image Error", f"Cannot load image: {image_path}")
-                return
-                
-            self.current_image = pixmap
-            
-            # Show progress bar for demonstration
-            self.progress_bar.setValue(0)
-            self.progress_bar.setFormat("Processing image... %p%")
-            self.progress_bar.show()
-            
-            # Here you would implement actual processing with progress updates
-            # For demo, we'll just simulate progress
+    def process_files(self, file_paths):
+        """
+        Proses file atau folder yang diberikan
+        
+        Args:
+            file_paths: Daftar path file atau folder
+        """
+        # Mulai pemrosesan gambar dalam thread terpisah
+        self.image_processor.start_processing(file_paths)
+        
+        # Cek secara periodik apakah thread masih berjalan
+        self.check_processor_thread()
+    
+    def check_processor_thread(self):
+        """Cek status thread pemrosesan dan tampilkan statistik jika selesai"""
+        if not self.image_processor.processing_thread or not self.image_processor.processing_thread.is_alive():
+            # Thread sudah selesai, tampilkan statistik
+            if self.image_processor.end_time:  # Pastikan telah diproses
+                stats = self.image_processor.get_statistics()
+                self.show_statistics(stats)
+        else:
+            # Thread masih berjalan, cek lagi nanti
             QApplication.processEvents()
-            for i in range(1, 101):
-                self.progress_bar.setValue(i)
-                QApplication.processEvents()
-                # Simulate processing time
-                import time
-                time.sleep(0.02)  # Add a small delay to see the progress
-            
-            # Set to Ready when done but keep visible
-            self.progress_bar.setValue(100)
-            self.progress_bar.setFormat("Done")
-            
-            # Show a message with the file path
-            file_name = Path(image_path).name
-            QMessageBox.information(
-                self, 
-                "Image Loaded", 
-                f"Image loaded successfully: {file_name}\n\nSize: {pixmap.width()}x{pixmap.height()} pixels"
-            )
-            
-            # Reset progress bar to Ready state after processing
-            self.progress_bar.setValue(0)
-            self.progress_bar.setFormat("Ready")
-            
-        except Exception as e:
-            self.progress_bar.setFormat("Error")
-            QMessageBox.critical(self, "Error", f"An error occurred processing the image: {str(e)}")
+            QApplication.instance().processEvents()
+            time.sleep(0.1)  # Jeda kecil untuk tidak membebani CPU
+            self.check_processor_thread()
+    
+    def show_statistics(self, stats):
+        """Tampilkan dialog statistik"""
+        dialog = StatsDialog(self, stats)
+        dialog.exec()
     
     def update_drop_frame_geometry(self):
         """Update the drop frame geometry to be dynamic with window size."""
@@ -338,6 +447,14 @@ class SotongHDApp(QMainWindow):
                 self.update_progress_bar_position()
                 
         return super().eventFilter(obj, event)
+        
+    def closeEvent(self, event):
+        """Handle when the window is closed"""
+        # Stop any ongoing processing
+        if hasattr(self, 'image_processor'):
+            self.image_processor.stop_processing()
+        
+        event.accept()
 
 def run_app(base_dir, icon_path=None):
     # Create Qt application
@@ -348,8 +465,3 @@ def run_app(base_dir, icon_path=None):
     
     # Start the event loop
     sys.exit(app.exec())
-
-if __name__ == "__main__":
-    # If run directly (for testing), use the current directory as base
-    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    run_app(base_dir)
