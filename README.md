@@ -1,0 +1,6 @@
+[![License](https://img.shields.io/github/license/mudrikam/SotongHD)](LICENSE)
+[![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
+[![Code Size](https://img.shields.io/github/languages/code-size/mudrikam/SotongHD)](https://github.com/mudrikam/SotongHD)
+[![Release](https://img.shields.io/github/v/release/mudrikam/SotongHD?include_prereleases)](https://github.com/mudrikam/SotongHD/releases)
+[![Downloads](https://img.shields.io/github/downloads/mudrikam/SotongHD/total)](https://github.com/mudrikam/SotongHD/releases)
+[![Last Commit](https://img.shields.io/github/last-commit/mudrikam/SotongHD)](https://github.com/mudrikam/SotongHD/commits/main)
