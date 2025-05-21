@@ -206,7 +206,7 @@ class ImageProcessor:
         try:
             # ===== TAHAP 1: Setup Browser (0-5%) =====
             self.update_progress(
-                f"Mempersiapkan browser untuk file {Path(file_path).name}", 
+                f"Mempersiapkan chrome untuk file {Path(file_path).name}", 
                 percentage=calculate_global_percent(percentages["browser_setup"] / 2),
                 current=current_num, 
                 total=total_files
