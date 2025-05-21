@@ -167,9 +167,29 @@ class SotongHDApp(QMainWindow):
         
         # Get UI elements
         self.dropFrame = self.findChild(QWidget, "dropFrame")
+        self.iconLabel = self.findChild(QLabel, "iconLabel")
         self.titleLabel = self.findChild(QWidget, "titleLabel")
         self.subtitleLabel = self.findChild(QWidget, "subtitleLabel")
         self.progress_bar = self.findChild(QProgressBar, "progressBar")
+        
+        # Set icon in the UI using high resolution
+        if icon_path and os.path.exists(icon_path) and self.iconLabel:
+            # Load the icon with explicitly requesting a larger size
+            icon = QIcon(icon_path)
+            # Get the largest available size (usually 256x256 for most .ico files)
+            available_sizes = icon.availableSizes()
+            if available_sizes:
+                # Sort sizes and get the largest one
+                largest_size = max(available_sizes, key=lambda size: size.width() * size.height())
+                pixmap = icon.pixmap(largest_size)
+            else:
+                # If no sizes available, request a large size explicitly
+                pixmap = icon.pixmap(256, 256)
+                
+            # Scale it down to fit our UI label while maintaining aspect ratio
+            self.iconLabel.setPixmap(pixmap.scaled(
+                96, 96, Qt.KeepAspectRatio, Qt.SmoothTransformation
+            ))
         
         # Create progress handler to receive signals
         self.progress_handler = ProgressHandler(self)
