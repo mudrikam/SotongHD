@@ -1,9 +1,10 @@
 import os
 import sys
-from PySide6.QtWidgets import QApplication, QMainWindow, QWidget
+from PySide6.QtWidgets import QApplication, QMainWindow, QWidget, QMessageBox
 from PySide6.QtUiTools import QUiLoader
-from PySide6.QtGui import QIcon, QPixmap, QPainter
-from PySide6.QtCore import Qt, QRect, QPoint
+from PySide6.QtGui import QIcon, QPixmap, QPainter, QImageReader, QDragEnterEvent, QDropEvent
+from PySide6.QtCore import Qt, QRect, QPoint, QMimeData, QUrl
+from pathlib import Path
 
 class BackgroundWidget(QWidget):
     def __init__(self, parent=None):
@@ -65,15 +66,40 @@ class SotongHDApp(QMainWindow):
         self.bg_widget = BackgroundWidget(self)
         self.setCentralWidget(self.bg_widget)
         
-        # Get the labels from UI and reparent them to our background widget
+        # Set up drag and drop support
+        self.setAcceptDrops(True)
+        
+        # Get the drop frame and labels from UI and reparent them to our background widget
+        self.dropFrame = self.ui.findChild(QWidget, "dropFrame")
         self.titleLabel = self.ui.findChild(QWidget, "titleLabel")
         self.subtitleLabel = self.ui.findChild(QWidget, "subtitleLabel")
-        
+          # Current displayed image (for processing)
+        self.current_image = None
+        if self.dropFrame:
+            self.dropFrame.setParent(self.bg_widget)
+            
+            # Define margins for dynamic sizing (padding from window edges)
+            self.margin = 20  # 20px padding from each side of the window
+            
+            # Set initial geometry with margins
+            self.update_drop_frame_geometry()
+              # Apply the theme style
+            self.dropFrame.setStyleSheet("""
+                QFrame#dropFrame {
+                    border: 2px dashed rgba(88, 29, 239, 0.2);
+                    border-radius: 15px;
+                    background-color: rgba(88, 29, 239, 0.08);
+                }
+            """)
+            
+            self.dropFrame.show()
+            self.dropFrame.raise_()
+            
         if self.titleLabel:
             # Make sure the label has correct parent and stays on top
-            self.titleLabel.setParent(self.bg_widget)
+            self.titleLabel.setParent(self.dropFrame)
             # Position the label in the center top area
-            self.titleLabel.setGeometry(0, self.height() // 4, self.width(), 50)
+            self.titleLabel.setGeometry(0, 50, self.dropFrame.width(), 50)
             self.titleLabel.setAlignment(Qt.AlignCenter)
             # Make sure it's visible
             self.titleLabel.show()
@@ -81,10 +107,10 @@ class SotongHDApp(QMainWindow):
             
         if self.subtitleLabel:
             # Make sure the subtitle has correct parent and stays on top
-            self.subtitleLabel.setParent(self.bg_widget)
+            self.subtitleLabel.setParent(self.dropFrame)
             # Position the subtitle below the title
-            subtitle_y = self.height() // 4 + 60 if self.titleLabel else self.height() // 3
-            self.subtitleLabel.setGeometry(0, subtitle_y, self.width(), 100)
+            subtitle_y = 110
+            self.subtitleLabel.setGeometry(50, subtitle_y, self.dropFrame.width() - 100, 100)
             self.subtitleLabel.setAlignment(Qt.AlignCenter)
             # Make sure it's visible
             self.subtitleLabel.show()
@@ -97,12 +123,126 @@ class SotongHDApp(QMainWindow):
         else:
             print(f"Warning: Background image not found at {bg_path}")
             
-        # Make sure the label stays on top when window is resized
+        # Make sure the components stay properly positioned when window is resized
         self.bg_widget.installEventFilter(self)
-        
-        # Show the main window
+          # Show the main window
         self.show()
     
+    def dragEnterEvent(self, event: QDragEnterEvent):
+        """Handle when dragged items enter the window"""
+        # Check if the dragged data has URLs (file paths)
+        if event.mimeData().hasUrls():
+            # Check if at least one URL is an image file
+            for url in event.mimeData().urls():
+                file_path = url.toLocalFile()
+                if self.is_image_file(file_path):
+                    event.acceptProposedAction()
+                    if self.dropFrame:
+                        self.dropFrame.setStyleSheet("""
+                            QFrame#dropFrame {
+                                border: 2px dashed rgba(88, 29, 239, 0.5);
+                                border-radius: 15px;
+                                background-color: rgba(88, 29, 239, 0.15);
+                            }
+                        """)
+                    return
+        event.ignore()    
+    def dragLeaveEvent(self, event):
+        """Handle when dragged items leave the window"""
+        if self.dropFrame:
+            self.dropFrame.setStyleSheet("""
+                QFrame#dropFrame {
+                    border: 2px dashed rgba(88, 29, 239, 0.2);
+                    border-radius: 15px;
+                    background-color: rgba(88, 29, 239, 0.08);
+                }
+            """)
+        
+    def dragMoveEvent(self, event):
+        """Handle when dragged items move within the window"""
+        # We already checked the mime data in dragEnterEvent, so just accept
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()    
+    def dropEvent(self, event: QDropEvent):
+        """Handle when items are dropped into the window"""
+        # Reset the dropFrame style
+        if self.dropFrame:
+            self.dropFrame.setStyleSheet("""
+                QFrame#dropFrame {
+                    border: 2px dashed rgba(88, 29, 239, 0.2);
+                    border-radius: 15px;
+                    background-color: rgba(88, 29, 239, 0.08);
+                }
+            """)
+        
+        # Process the dropped files
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+            
+            # Get the first valid image file from the dropped URLs
+            for url in event.mimeData().urls():
+                file_path = url.toLocalFile()
+                if self.is_image_file(file_path):
+                    self.process_image(file_path)
+                    break
+    
+    def is_image_file(self, file_path):
+        """Check if the file is a valid image that can be loaded"""
+        if not os.path.isfile(file_path):
+            return False
+            
+        # Check if it's a supported image format
+        reader = QImageReader(file_path)
+        return reader.canRead()
+    
+    def process_image(self, image_path):
+        """Process the dropped image"""
+        try:
+            # Load the image
+            pixmap = QPixmap(image_path)
+            if pixmap.isNull():
+                QMessageBox.warning(self, "Image Error", f"Cannot load image: {image_path}")
+                return
+                
+            self.current_image = pixmap
+            
+            # Show a message with the file path
+            file_name = Path(image_path).name
+            QMessageBox.information(
+                self, 
+                "Image Loaded", 
+                f"Image loaded successfully: {file_name}\n\nSize: {pixmap.width()}x{pixmap.height()} pixels"
+            )
+            
+            # Here you could implement the image enhancement functionality
+            # For example:
+            # enhanced_image = self.enhance_image(pixmap)
+            # self.display_enhanced_image(enhanced_image)
+            
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"An error occurred processing the image: {str(e)}")
+    
+    def update_drop_frame_geometry(self):
+        """Update the drop frame geometry to be dynamic with window size."""
+        if self.dropFrame:
+            # Calculate new size with margins on all sides
+            width = self.width() - (self.margin * 2)
+            height = self.height() - (self.margin * 2)
+            
+            # Set the geometry with margins
+            self.dropFrame.setGeometry(
+                self.margin,  # X position (left margin)
+                self.margin,  # Y position (top margin)
+                width,        # Width (window width minus left and right margins)
+                height        # Height (window height minus top and bottom margins)
+            )
+            
+            # Update label positions if needed
+            if hasattr(self, 'titleLabel') and self.titleLabel:
+                self.titleLabel.setGeometry(0, 50, self.dropFrame.width(), 50)
+            
+            if hasattr(self, 'subtitleLabel') and self.subtitleLabel:
+                self.subtitleLabel.setGeometry(50, 110, self.dropFrame.width() - 100, 100)
     def center_on_screen(self):
         """Center the window on the screen."""
         screen_geometry = QApplication.primaryScreen().geometry()
@@ -114,14 +254,10 @@ class SotongHDApp(QMainWindow):
         self.move(x, y)
     
     def eventFilter(self, obj, event):
-        if obj == self.bg_widget and event.type() == 14 and hasattr(self, 'titleLabel'):  # 14 is the value for Resize event
-            # Keep labels positioned correctly when window is resized
-            if hasattr(self, 'titleLabel') and self.titleLabel:
-                self.titleLabel.setGeometry(0, self.height() // 4, self.bg_widget.width(), 50)
-            
-            if hasattr(self, 'subtitleLabel') and self.subtitleLabel:
-                subtitle_y = self.height() // 4 + 60 if hasattr(self, 'titleLabel') and self.titleLabel else self.height() // 3
-                self.subtitleLabel.setGeometry(0, subtitle_y, self.bg_widget.width(), 100)
+        if obj == self.bg_widget and event.type() == 14:  # 14 is the value for Resize event
+            # Keep components positioned correctly when window is resized
+            if hasattr(self, 'dropFrame') and self.dropFrame:
+                self.update_drop_frame_geometry()
                 
         return super().eventFilter(obj, event)
 

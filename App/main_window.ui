@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>800</width>
-    <height>600</height>
+    <width>650</width>
+    <height>400</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -25,31 +25,31 @@
           <verstretch>0</verstretch>
          </sizepolicy>
         </property>
+        <property name="styleSheet">
+         <string>QFrame#dropFrame {
+  border: 2px dashed rgba(88, 29, 239, 0.08);
+  border-radius: 15px;
+  background-color: rgba(88, 29, 239, 0.08);
+}
+</string>
+        </property>
         <property name="frameShape">
          <enum>QFrame::StyledPanel</enum>
         </property>
         <property name="frameShadow">
          <enum>QFrame::Raised</enum>
         </property>
-        <property name="styleSheet">
-         <string>QFrame#dropFrame {
-  border: 2px dashed #888888;
-  border-radius: 15px;
-  background-color: rgba(255, 255, 255, 30);
-}
-</string>
-        </property>
         <layout class="QVBoxLayout" name="dropAreaLayout">
          <item>
           <widget class="QLabel" name="titleLabel">
            <property name="font">
             <font>
-             <pointsize>14</pointsize>
+             <pointsize>20</pointsize>
              <bold>true</bold>
             </font>
            </property>
            <property name="text">
-            <string>LEMPARKAN GAMBAR BURIKMU DI SINI!</string>
+            <string>LEMPARKAN GAMBAR KE SINI!</string>
            </property>
            <property name="alignment">
             <set>Qt::AlignCenter</set>
@@ -61,12 +61,17 @@
            <property name="font">
             <font>
              <pointsize>10</pointsize>
-             <italic>true</italic>
+             <italic>false</italic>
             </font>
            </property>
            <property name="text">
-            <string>Dengan kecerdasan dan kehebatan mimicry Tuan Sotong,
-gambarmu yang burik akan disulap menjadi HD!</string>
+            <string>
+            Script ini hanya mengunggah gambar ke situs Picsart dan menggunakan fitur upscale otomatis di sana.
+
+            Upscale tidak dilakukan oleh aplikasi ini, tapi oleh server Picsart.
+            Hasil akan disimpan otomatis ke folder 'UPSCALE' sumber file asli. 
+            Fitur gratis Picsart hanya mendukung hingga 2x upscale. Gunakan seperlunya.
+            </string>
            </property>
            <property name="alignment">
             <set>Qt::AlignCenter</set>
