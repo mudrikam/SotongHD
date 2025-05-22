@@ -298,6 +298,12 @@ class SotongHDApp(QMainWindow):
         self.openFolderButton = self.findChild(QPushButton, "openFolderButton")
         self.openFilesButton = self.findChild(QPushButton, "openFilesButton")
         self.whatsappButton = self.findChild(QPushButton, "whatsappButton")
+        self.stopButton = self.findChild(QPushButton, "stopButton")
+        
+        # Set stopButton to disabled initially (since no processing is running)
+        if self.stopButton:
+            self.stopButton.setEnabled(False)
+            self.stopButton.clicked.connect(self.stop_processing)
         
         # Add icons to buttons if qtawesome is available
         if qta:
@@ -321,6 +327,12 @@ class SotongHDApp(QMainWindow):
                 self.openFilesButton.setIcon(files_icon)
                 self.openFilesButton.setIconSize(QSize(16, 16))
                 self.openFilesButton.clicked.connect(self.open_files_dialog)
+            
+            # Stop button with stop icon
+            stop_icon = qta.icon('fa5s.stop')
+            if self.stopButton:
+                self.stopButton.setIcon(stop_icon)
+                self.stopButton.setIconSize(QSize(16, 16))
         else:
             # If qtawesome is not available, connect buttons without icons
             if self.whatsappButton:
@@ -706,6 +718,16 @@ class SotongHDApp(QMainWindow):
         paths_str = ", ".join([os.path.basename(p) for p in file_paths])
         logger.info(f"Memproses {len(file_paths)} item", paths_str)
         
+        # Enable stop button
+        if self.stopButton:
+            self.stopButton.setEnabled(True)
+        
+        # Disable other buttons during processing
+        if self.openFolderButton:
+            self.openFolderButton.setEnabled(False)
+        if self.openFilesButton:
+            self.openFilesButton.setEnabled(False)
+        
         # Mulai pemrosesan gambar dalam thread terpisah
         self.image_processor.start_processing(file_paths)
         
@@ -719,6 +741,9 @@ class SotongHDApp(QMainWindow):
             if self.image_processor.end_time:  # Pastikan telah diproses
                 stats = self.image_processor.get_statistics()
                 self.show_statistics(stats)
+            
+            # Reset UI buttons
+            self.reset_ui_buttons()
         else:
             # Thread masih berjalan, gunakan timer untuk cek lagi nanti
             QApplication.processEvents()
@@ -730,6 +755,47 @@ class SotongHDApp(QMainWindow):
         logger.info("Statistik proses", f"Berhasil: {stats['total_processed']}, Gagal: {stats['total_failed']}")
         dialog = StatsDialog(self, stats)
         dialog.exec()
+    
+    def reset_ui_buttons(self):
+        """Reset status tombol UI setelah pemrosesan selesai"""
+        # Disable stop button
+        if self.stopButton:
+            self.stopButton.setEnabled(False)
+        
+        # Enable folder and files buttons
+        if self.openFolderButton:
+            self.openFolderButton.setEnabled(True)
+        if self.openFilesButton:
+            self.openFilesButton.setEnabled(True)
+    
+    def stop_processing(self):
+        """Hentikan pemrosesan dan reset UI"""
+        logger.info("Menghentikan pemrosesan berdasarkan permintaan pengguna")
+        
+        # Show a confirmation dialog
+        reply = QMessageBox.question(
+            self, 
+            "Konfirmasi Pembatalan", 
+            "Apakah Anda yakin ingin menghentikan proses?",
+            QMessageBox.Yes | QMessageBox.No, 
+            QMessageBox.No
+        )
+        
+        if reply == QMessageBox.Yes:
+            # Stop the image processor
+            if hasattr(self, 'image_processor'):
+                self.image_processor.stop_processing()
+            
+            # Reset UI state
+            self.restore_title_label()
+            self.reset_ui_buttons()
+            
+            # Update progress bar to show cancellation
+            if self.progress_bar:
+                self.progress_bar.setValue(0)
+                self.progress_bar.setFormat("Proses dibatalkan oleh pengguna")
+            
+            logger.peringatan("Proses dibatalkan oleh pengguna")
     
     def open_folder_dialog(self):
         """Open a file dialog to select folders to process"""
@@ -777,8 +843,12 @@ class SotongHDApp(QMainWindow):
         
     def closeEvent(self, event):
         """Handle when the window is closed"""
+        # Stop any ongoing processing
         if hasattr(self, 'image_processor'):
             self.image_processor.stop_processing()
+        
+        # Reset UI buttons state
+        self.reset_ui_buttons()
         
         event.accept()
 

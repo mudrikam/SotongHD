@@ -19,6 +19,8 @@
   <property name="windowTitle">
    <string>Statistik SotongHD</string>
   </property>
+  <property name="styleSheet">
+  </property>
   <layout class="QVBoxLayout" name="verticalLayout">
    <item>
     <layout class="QHBoxLayout" name="headerLayout">
@@ -43,6 +45,9 @@
      </item>
      <item>
       <widget class="QLabel" name="headerText">
+       <property name="styleSheet">
+        <string notr="true"/>
+       </property>
        <property name="text">
         <string>&lt;h1&gt;SotongHD Report&lt;/h1&gt;</string>
        </property>
@@ -67,102 +72,224 @@
     </layout>
    </item>
    <item>
-    <layout class="QGridLayout" name="statsGridLayout">
-     <item row="0" column="0">
-      <widget class="QLabel" name="totalSuccessLabel">
-       <property name="text">
-        <string>&lt;b&gt;Total Gambar Berhasil:&lt;/b&gt;</string>
-       </property>
-      </widget>
-     </item>
-     <item row="0" column="1">
-      <widget class="QLabel" name="totalSuccessValue">
-       <property name="text">
-        <string>0</string>
-       </property>
-      </widget>
-     </item>
-     <item row="1" column="0">
-      <widget class="QLabel" name="totalFailedLabel">
-       <property name="text">
-        <string>&lt;b&gt;Total Gambar Gagal:&lt;/b&gt;</string>
-       </property>
-      </widget>
-     </item>
-     <item row="1" column="1">
-      <widget class="QLabel" name="totalFailedValue">
-       <property name="text">
-        <string>0</string>
-       </property>
-      </widget>
-     </item>
-     <item row="2" column="0">
-      <widget class="QLabel" name="totalFilesLabel">
-       <property name="text">
-        <string>&lt;b&gt;Total File:&lt;/b&gt;</string>
-       </property>
-      </widget>
-     </item>
-     <item row="2" column="1">
-      <widget class="QLabel" name="totalFilesValue">
-       <property name="text">
-        <string>0</string>
-       </property>
-      </widget>
-     </item>
-     <item row="3" column="0">
-      <widget class="QLabel" name="startTimeLabel">
-       <property name="text">
-        <string>&lt;b&gt;Waktu Mulai:&lt;/b&gt;</string>
-       </property>
-      </widget>
-     </item>
-     <item row="3" column="1">
-      <widget class="QLabel" name="startTimeValue">
-       <property name="text">
-        <string>00:00:00</string>
-       </property>
-      </widget>
-     </item>
-     <item row="4" column="0">
-      <widget class="QLabel" name="endTimeLabel">
-       <property name="text">
-        <string>&lt;b&gt;Waktu Selesai:&lt;/b&gt;</string>
-       </property>
-      </widget>
-     </item>
-     <item row="4" column="1">
-      <widget class="QLabel" name="endTimeValue">
-       <property name="text">
-        <string>00:00:00</string>
-       </property>
-      </widget>
-     </item>
-     <item row="5" column="0">
-      <widget class="QLabel" name="durationLabel">
-       <property name="text">
-        <string>&lt;b&gt;Durasi:&lt;/b&gt;</string>
-       </property>
-      </widget>
-     </item>
-     <item row="5" column="1">
-      <widget class="QLabel" name="durationValue">
-       <property name="text">
-        <string>0:00:00</string>
-       </property>
-      </widget>
-     </item>
-    </layout>
+    <widget class="QFrame" name="statsFrame">
+     <property name="styleSheet">
+      <string notr="true">
+      QFrame#statsFrame {
+        border: none;
+        border-radius: 10px;
+        background-color: rgba(161, 161, 161, 0.08);
+        padding: 10px;
+      }
+      </string>
+     </property>
+     <property name="frameShape">
+      <enum>QFrame::StyledPanel</enum>
+     </property>
+     <property name="frameShadow">
+      <enum>QFrame::Raised</enum>
+     </property>
+     <layout class="QVBoxLayout" name="statsFrameLayout">
+      <item>
+       <layout class="QGridLayout" name="statsGridLayout">
+        <item row="0" column="0">
+         <widget class="QLabel" name="totalSuccessLabel">
+          <property name="font">
+           <font>
+            <pointsize>10</pointsize>
+            <bold>true</bold>
+           </font>
+          </property>
+          <property name="text">
+           <string>Total Gambar Berhasil:</string>
+          </property>
+         </widget>
+        </item>
+        <item row="0" column="1">
+         <widget class="QLabel" name="totalSuccessValue">
+          <property name="font">
+           <font>
+            <pointsize>10</pointsize>
+           </font>
+          </property>
+          <property name="styleSheet">
+           <string notr="true">color: #2ecc71;</string>
+          </property>
+          <property name="text">
+           <string>0</string>
+          </property>
+         </widget>
+        </item>
+        <item row="1" column="0">
+         <widget class="QLabel" name="totalFailedLabel">
+          <property name="font">
+           <font>
+            <pointsize>10</pointsize>
+            <bold>true</bold>
+           </font>
+          </property>
+          <property name="text">
+           <string>Total Gambar Gagal:</string>
+          </property>
+         </widget>
+        </item>
+        <item row="1" column="1">
+         <widget class="QLabel" name="totalFailedValue">
+          <property name="font">
+           <font>
+            <pointsize>10</pointsize>
+           </font>
+          </property>
+          <property name="styleSheet">
+           <string notr="true">color: #e74c3c;</string>
+          </property>
+          <property name="text">
+           <string>0</string>
+          </property>
+         </widget>
+        </item>
+        <item row="2" column="0">
+         <widget class="QLabel" name="totalFilesLabel">
+          <property name="font">
+           <font>
+            <pointsize>10</pointsize>
+            <bold>true</bold>
+           </font>
+          </property>
+          <property name="text">
+           <string>Total File:</string>
+          </property>
+         </widget>
+        </item>
+        <item row="2" column="1">
+         <widget class="QLabel" name="totalFilesValue">
+          <property name="font">
+           <font>
+            <pointsize>10</pointsize>
+           </font>
+          </property>
+          <property name="text">
+           <string>0</string>
+          </property>
+         </widget>
+        </item>
+        <item row="3" column="0">
+         <widget class="QLabel" name="startTimeLabel">
+          <property name="font">
+           <font>
+            <pointsize>10</pointsize>
+            <bold>true</bold>
+           </font>
+          </property>
+          <property name="text">
+           <string>Waktu Mulai:</string>
+          </property>
+         </widget>
+        </item>
+        <item row="3" column="1">
+         <widget class="QLabel" name="startTimeValue">
+          <property name="font">
+           <font>
+            <pointsize>10</pointsize>
+           </font>
+          </property>
+          <property name="text">
+           <string>00:00:00</string>
+          </property>
+         </widget>
+        </item>
+        <item row="4" column="0">
+         <widget class="QLabel" name="endTimeLabel">
+          <property name="font">
+           <font>
+            <pointsize>10</pointsize>
+            <bold>true</bold>
+           </font>
+          </property>
+          <property name="text">
+           <string>Waktu Selesai:</string>
+          </property>
+         </widget>
+        </item>
+        <item row="4" column="1">
+         <widget class="QLabel" name="endTimeValue">
+          <property name="font">
+           <font>
+            <pointsize>10</pointsize>
+           </font>
+          </property>
+          <property name="text">
+           <string>00:00:00</string>
+          </property>
+         </widget>
+        </item>
+        <item row="5" column="0">
+         <widget class="QLabel" name="durationLabel">
+          <property name="font">
+           <font>
+            <pointsize>10</pointsize>
+            <bold>true</bold>
+           </font>
+          </property>
+          <property name="text">
+           <string>Durasi:</string>
+          </property>
+         </widget>
+        </item>
+        <item row="5" column="1">
+         <widget class="QLabel" name="durationValue">
+          <property name="font">
+           <font>
+            <pointsize>10</pointsize>
+           </font>
+          </property>
+          <property name="text">
+           <string>0:00:00</string>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+     </layout>
+    </widget>
    </item>
    <item>
     <widget class="QLabel" name="foldersHeaderLabel">
+     <property name="font">
+      <font>
+       <pointsize>10</pointsize>
+       <bold>true</bold>
+      </font>
+     </property>
      <property name="text">
-      <string>&lt;b&gt;Folder yang Diproses:&lt;/b&gt;</string>
+      <string>Folder yang Diproses:</string>
      </property>
     </widget>
    </item>
    <item>
     <widget class="QScrollArea" name="foldersScrollArea">
+     <property name="styleSheet">
+      <string notr="true">
+      QScrollArea {
+        border: none;
+        border-radius: 10px;
+        background-color: rgba(161, 161, 161, 0.08);
+      }
+      QScrollBar:vertical {
+        border: none;
+        background: rgba(161, 161, 161, 0.1);
+        width: 10px;
+        border-radius: 5px;
+      }
+      QScrollBar::handle:vertical {
+        background: rgba(88, 29, 239, 0.3);
+        border-radius: 5px;
+      }
+      QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+        height: 0px;
+      }
+      </string>
+     </property>
      <property name="widgetResizable">
       <bool>true</bool>
      </property>
@@ -171,8 +298,8 @@
        <rect>
         <x>0</x>
         <y>0</y>
-        <width>580</width>
-        <height>122</height>
+        <width>582</width>
+        <height>63</height>
        </rect>
       </property>
       <layout class="QVBoxLayout" name="foldersLayout"/>
@@ -181,6 +308,33 @@
    </item>
    <item>
     <widget class="QPushButton" name="closeButton">
+     <property name="minimumSize">
+      <size>
+       <width>0</width>
+       <height>40</height>
+      </size>
+     </property>
+     <property name="font">
+      <font>
+       <pointsize>10</pointsize>
+       <bold>true</bold>
+      </font>
+     </property>
+     <property name="styleSheet">
+      <string notr="true">QPushButton {
+  background-color: rgba(161, 161, 161, 0.08);
+  border-radius: 10px;
+  padding: 8px 16px;
+}
+QPushButton:hover {
+  background-color: rgba(88, 29, 239, 0.7);
+  color: white;
+  border: none;
+}
+QPushButton:pressed {
+  background-color: rgba(88, 29, 239, 1.0);
+}</string>
+     </property>
      <property name="text">
       <string>Tutup</string>
      </property>
