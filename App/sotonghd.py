@@ -7,7 +7,7 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QMessageBox, 
                               QHBoxLayout, QGridLayout, QScrollArea, QSizePolicy)
 from PySide6.QtUiTools import QUiLoader
 from PySide6.QtGui import QIcon, QPixmap, QPainter, QImageReader, QDragEnterEvent, QDropEvent, QPainterPath
-from PySide6.QtCore import Qt, QRect, QPoint, QMimeData, QUrl, Signal, QObject, QTimer, QSize, QRectF
+from PySide6.QtCore import Qt, QRect, QPoint, QUrl, Signal, QObject, QTimer, QSize, QRectF, QMimeData
 from pathlib import Path
 from .background_process import ImageProcessor, ProgressSignal, FileUpdateSignal
 
@@ -34,8 +34,9 @@ class ScalableImageLabel(QLabel):
         if not os.path.exists(path):
             return False
             
-        self.image_path = path
-        self.original_pixmap = QPixmap(path)
+        # Ensure path is a string to avoid any type issues
+        self.image_path = str(path)
+        self.original_pixmap = QPixmap(self.image_path)
         self.updatePixmap()
         return not self.original_pixmap.isNull()
         
@@ -549,19 +550,23 @@ class SotongHDApp(QMainWindow):
 
     def dragEnterEvent(self, event: QDragEnterEvent):
         """Handle when dragged items enter the window"""
-        # Check if the dragged data has URLs (file paths)
-        if event.mimeData().hasUrls():
-            event.acceptProposedAction()
-            if self.dropFrame:
-                self.dropFrame.setStyleSheet("""
-                    QFrame#dropFrame {
-                        border: 2px dashed rgba(88, 29, 239, 0.5);
-                        border-radius: 15px;
-                        background-color: rgba(88, 29, 239, 0.15);
-                    }
-                """)
-            return
-        event.ignore()    
+        # More robust check for valid drag data
+        mime_data = event.mimeData()
+        if mime_data and mime_data.hasUrls():
+            # Only accept if there's at least one valid local file
+            has_local_files = any(url.isLocalFile() for url in mime_data.urls())
+            if has_local_files:
+                event.acceptProposedAction()
+                if self.dropFrame:
+                    self.dropFrame.setStyleSheet("""
+                        QFrame#dropFrame {
+                            border: 2px dashed rgba(88, 29, 239, 0.5);
+                            border-radius: 15px;
+                            background-color: rgba(88, 29, 239, 0.15);
+                        }
+                    """)
+                return
+        event.ignore()
         
     def dragLeaveEvent(self, event):
         """Handle when dragged items leave the window"""
