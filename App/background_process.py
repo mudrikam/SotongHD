@@ -298,13 +298,57 @@ class ImageProcessor:
                     total=total_files
                 )
                 
-                # Cari elemen input type="file" (biasanya disembunyikan oleh CSS)
-                # Use a more reliable selector targeting the uploadArea which is constant
-                input_file = driver.find_element(By.CSS_SELECTOR, "#uploadArea input[type='file']")
+                # Perbaikan metode pencarian elemen input file
+                # Gunakan multiple selectors untuk meningkatkan reliabilitas
+                input_file = None
+                selectors_to_try = [
+                    "div[id='uploadArea'] input[type='file']",
+                    "div[id='uploadArea'] input",
+                    "div[class*='upload-area-root'] input[type='file']",
+                    "div[class*='upload-area'] input[type='file']",
+                    "div[class*='upload-area'] input",
+                    "input[data-testid='input']",
+                    "input[accept*='image/jpeg']"
+                ]
                 
+                for selector in selectors_to_try:
+                    try:
+                        input_file = driver.find_element(By.CSS_SELECTOR, selector)
+                        if input_file:
+                            logger.info(f"Mencoba mengunggah gambar ke: {selector}")
+                            break
+                    except:
+                        continue
+                
+                if not input_file:
+                    # Jika masih tidak ditemukan, coba menggunakan JavaScript untuk menemukan elemen
+                    logger.info("Mencoba mencari elemen dengan JavaScript")
+                    try:
+                        input_file = driver.execute_script("""
+                            return document.querySelector("div[id='uploadArea'] input") || 
+                                   document.querySelector("input[type='file']") ||
+                                   document.querySelector("input[data-testid='input']");
+                        """)
+                    except:
+                        pass
+                
+                if not input_file:
+                    # Ambil screenshot untuk debugging
+                    debug_screenshot_path = os.path.join(os.path.dirname(file_path), "UPSCALE", "debug_screenshot.png")
+                    os.makedirs(os.path.dirname(debug_screenshot_path), exist_ok=True)
+                    driver.save_screenshot(debug_screenshot_path)
+                    
+                    # Log page source untuk analisis
+                    html_source = driver.page_source
+                    debug_html_path = os.path.join(os.path.dirname(file_path), "UPSCALE", "page_source.html")
+                    with open(debug_html_path, 'w', encoding='utf-8') as f:
+                        f.write(html_source)
+                    
+                    raise Exception("Tidak dapat menemukan elemen input file. Screenshot dan HTML source disimpan untuk debugging.")
+
                 # Upload file ke elemen input
                 input_file.send_keys(file_path)
-                time.sleep(1)  # Beri waktu untuk upload selesai
+                time.sleep(2)  # Beri waktu lebih lama untuk upload selesai (ditambah dari 1 detik)
 
                 self.update_progress(
                     f"File berhasil diunggah: {Path(file_path).name}", 
