@@ -9,20 +9,23 @@
 
 # SotongHD
 
-SotongHD adalah script otomatisasi untuk upscale gambar ke resolusi 2x lebih tinggi menggunakan layanan PicsArt. Script ini memudahkan proses upscaling gambar secara batch tanpa perlu melakukannya satu per satu.
+SotongHD adalah script otomatisasi untuk upscale gambar ke resolusi 2x lebih tinggi menggunakan layanan Picsart. 
+Script ini memudahkan proses upscaling gambar secara batch tanpa perlu melakukannya satu per satu.
 
 ## Fitur Utama
-- Upscale otomatis gambar ke resolusi 2x
+- Upscale otomatis gambar ke resolusi 2x (skala lebih besar membutuhkan Picsart Plus)
+- Opsi upscale 1 gambar, multi gambar, folder, atau multi folder
 - Proses batch untuk multiple gambar
 - Antarmuka yang sederhana dan mudah digunakan
 
 # Lisensi MIT
 
-MIT. Artinya:
-- Lo boleh pake, kopas, modif, jual
-- Gak ada garansi
-- Nama pembuat gak boleh dihapus
-- Udah, itu aja
+Yang Artinya:
+- Boleh digunakan, disalin, dimodifikasi, dijual
+- Gunakan seperlunya
+- Tidak ada garansi
+- Nama pembuat tidak boleh dihapus
+- Cukup sekian
 
 ## Butuh Bantuan?
 
