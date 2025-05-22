@@ -4,12 +4,99 @@ import time
 from datetime import datetime, timedelta
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QMessageBox, QProgressBar, 
                               QVBoxLayout, QDialog, QLabel, QTextBrowser, QPushButton, QFileDialog,
-                              QHBoxLayout, QGridLayout, QScrollArea)
+                              QHBoxLayout, QGridLayout, QScrollArea, QSizePolicy)
 from PySide6.QtUiTools import QUiLoader
-from PySide6.QtGui import QIcon, QPixmap, QPainter, QImageReader, QDragEnterEvent, QDropEvent
-from PySide6.QtCore import Qt, QRect, QPoint, QMimeData, QUrl, Signal, QObject, QTimer
+from PySide6.QtGui import QIcon, QPixmap, QPainter, QImageReader, QDragEnterEvent, QDropEvent, QPainterPath
+from PySide6.QtCore import Qt, QRect, QPoint, QMimeData, QUrl, Signal, QObject, QTimer, QSize, QRectF
 from pathlib import Path
-from .background_process import ImageProcessor, ProgressSignal
+from .background_process import ImageProcessor, ProgressSignal, FileUpdateSignal
+
+
+class ScalableImageLabel(QLabel):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.original_pixmap = None
+        self.image_path = None
+        self.rounded_pixmap = None
+        # Set size policy to allow the widget to shrink
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        
+        # Remove background styling, only keep minimal padding
+        self.setStyleSheet("""
+            QLabel {
+                padding: 5px;
+                background-color: transparent;
+            }
+        """)
+        
+    def setImagePath(self, path):
+        """Menyimpan path gambar dan memuat pixmap original"""
+        if not os.path.exists(path):
+            return False
+            
+        self.image_path = path
+        self.original_pixmap = QPixmap(path)
+        self.updatePixmap()
+        return not self.original_pixmap.isNull()
+        
+    def updatePixmap(self):
+        """Menyesuaikan ukuran gambar sesuai dengan ukuran label"""
+        if self.original_pixmap and not self.original_pixmap.isNull():
+            # Handle potential zero-sized widget
+            width = max(10, self.width() - 24)  # Account for padding and border
+            height = max(10, self.height() - 24)
+            
+            # Create a scaled version of the pixmap
+            self.scaled_pixmap = self.original_pixmap.scaled(
+                width, 
+                height,
+                Qt.KeepAspectRatio, 
+                Qt.SmoothTransformation
+            )
+            
+            # Don't set the pixmap directly - we'll draw it in paintEvent
+            self.setMinimumSize(100, 100)
+            self.update()  # Force a repaint
+    
+    def paintEvent(self, event):
+        """Override paint event to draw rounded image"""
+        super().paintEvent(event)
+        
+        if hasattr(self, 'scaled_pixmap') and self.scaled_pixmap and not self.scaled_pixmap.isNull():
+            painter = QPainter(self)
+            painter.setRenderHint(QPainter.Antialiasing)
+            painter.setRenderHint(QPainter.SmoothPixmapTransform)
+            
+            # Calculate centered position
+            pixmap_rect = self.scaled_pixmap.rect()
+            x = (self.width() - pixmap_rect.width()) // 2
+            y = (self.height() - pixmap_rect.height()) // 2
+            
+            # Create a rounded rect path with stronger radius
+            radius = 20  # Increased border radius for the image
+            path = QPainterPath()
+            path.addRoundedRect(
+                QRectF(x, y, pixmap_rect.width(), pixmap_rect.height()),
+                radius, radius
+            )
+            
+            # Set the clipping path to the rounded rectangle
+            painter.setClipPath(path)
+            
+            # Draw the pixmap inside the clipping path
+            painter.drawPixmap(x, y, self.scaled_pixmap)
+    
+    def resizeEvent(self, event):
+        """Event yang terpanggil saat widget di-resize"""
+        super().resizeEvent(event)
+        self.updatePixmap()
+        
+    # Override size hint methods to allow widget to shrink
+    def sizeHint(self):
+        return QSize(200, 200)
+        
+    def minimumSizeHint(self):
+        return QSize(10, 10)
 
 
 class StatsDialog(QDialog):
@@ -133,6 +220,14 @@ class ProgressHandler(QObject):
         """Handle progress updates from the background thread"""
         # This method is called in the main thread via signal/slot
         self.app.update_progress(message, percentage)
+        
+    def handle_file_update(self, file_path, is_complete):
+        """Handle file updates from the background thread"""
+        # This method is called in the main thread via signal/slot
+        if is_complete:
+            self.app.restore_title_label()
+        else:
+            self.app.update_thumbnail(file_path)
 
 class SotongHDApp(QMainWindow):
     def __init__(self, base_dir, icon_path=None):
@@ -140,6 +235,9 @@ class SotongHDApp(QMainWindow):
         
         # Store the base directory
         self.base_dir = base_dir
+        
+        # Store original title text
+        self.original_title_text = "LEMPARKAN GAMBAR KE SINI!"
         
         # Set icon if provided
         if icon_path and os.path.exists(icon_path):
@@ -171,6 +269,25 @@ class SotongHDApp(QMainWindow):
         self.titleLabel = self.findChild(QWidget, "titleLabel")
         self.subtitleLabel = self.findChild(QWidget, "subtitleLabel")
         self.progress_bar = self.findChild(QProgressBar, "progressBar")
+        
+        # Create a scalable image label for thumbnails
+        self.thumbnail_label = ScalableImageLabel()
+        self.thumbnail_label.setAlignment(Qt.AlignCenter)
+        self.thumbnail_label.hide()  # Initially hidden
+        
+        # Keep reference to original title label properties
+        if self.titleLabel:
+            self.original_title_font = self.titleLabel.font()
+            self.original_title_text = self.titleLabel.text()
+            self.original_title_alignment = self.titleLabel.alignment()
+            
+            # Get title label's parent layout
+            parent_layout = self.titleLabel.parentWidget().layout()
+            title_index = parent_layout.indexOf(self.titleLabel)
+            
+            # Insert thumbnail label at the same position
+            if title_index >= 0:
+                parent_layout.insertWidget(title_index, self.thumbnail_label)
         
         # Set icon in the UI using high resolution
         if icon_path and os.path.exists(icon_path) and self.iconLabel:
@@ -211,9 +328,14 @@ class SotongHDApp(QMainWindow):
         self.progress_signal = ProgressSignal()
         self.progress_signal.progress.connect(self.progress_handler.handle_progress)
         
+        # Create a file update signal and connect it
+        self.file_update_signal = FileUpdateSignal()
+        self.file_update_signal.file_update.connect(self.progress_handler.handle_file_update)
+        
         self.image_processor = ImageProcessor(
             chromedriver_path=chromedriver_path,
-            progress_signal=self.progress_signal  # Pass signal instead of callback
+            progress_signal=self.progress_signal,
+            file_update_signal=self.file_update_signal
         )
         
         # Apply the theme style to drop frame
@@ -264,6 +386,73 @@ class SotongHDApp(QMainWindow):
             self.progress_bar.setFormat(f"{self.pending_progress_message} - %p%")
         else:
             self.progress_bar.setFormat(self.pending_progress_message)
+
+    def update_thumbnail(self, file_path):
+        """
+        Update the title label to show a thumbnail of the current image
+        
+        Args:
+            file_path: Path to the image file
+        """
+        if not file_path or not os.path.exists(file_path):
+            return
+            
+        try:
+            # Hide icon label during processing
+            if hasattr(self, 'iconLabel') and self.iconLabel:
+                self.iconLabel.hide()
+                
+            # Get the parent layout of the title label
+            if hasattr(self, 'titleLabel') and self.titleLabel:
+                # Hide the title label and show the thumbnail label
+                self.titleLabel.hide()
+                self.thumbnail_label.show()
+                
+                # Load the image in the scalable label
+                success = self.thumbnail_label.setImagePath(file_path)
+                
+                if not success:
+                    # Fallback if loading fails
+                    self.restore_title_label()
+                    return
+                
+                # Update subtitle to show file name
+                file_name = os.path.basename(file_path)
+                if self.subtitleLabel:
+                    self.subtitleLabel.setText(f"Memproses: {file_name}")
+                    
+        except Exception as e:
+            print(f"Error showing thumbnail: {e}")
+            self.restore_title_label()  # Restore on error
+    
+    def restore_title_label(self):
+        """Restore the title label to its original state"""
+        try:
+            # Show icon label when finished
+            if hasattr(self, 'iconLabel') and self.iconLabel:
+                self.iconLabel.show()
+                
+            # Hide thumbnail label and show title label
+            if hasattr(self, 'thumbnail_label'):
+                self.thumbnail_label.hide()
+                
+            if hasattr(self, 'titleLabel') and self.titleLabel:
+                # Restore original text and font
+                self.titleLabel.setText(self.original_title_text)
+                self.titleLabel.setFont(self.original_title_font)
+                self.titleLabel.setAlignment(self.original_title_alignment)
+                self.titleLabel.show()
+                
+            # Restore subtitle
+            if self.subtitleLabel:
+                self.subtitleLabel.setText("""
+                Script ini hanya mengunggah gambar ke situs Picsart dan menggunakan fitur upscale otomatis di sana.
+
+                Upscale tidak dilakukan oleh aplikasi ini, tapi oleh server Picsart.
+                Hasil akan disimpan otomatis ke folder 'UPSCALE' sumber file asli. Fitur gratis Picsart hanya mendukung hingga 2x upscale. Gunakan seperlunya.
+                """)
+        except Exception as e:
+            print(f"Error restoring title label: {e}")
 
     def dragEnterEvent(self, event: QDragEnterEvent):
         """Handle when dragged items enter the window"""
@@ -338,6 +527,9 @@ class SotongHDApp(QMainWindow):
         Args:
             file_paths: Daftar path file atau folder
         """
+        # Reset UI to initial state
+        self.restore_title_label()
+        
         # Mulai pemrosesan gambar dalam thread terpisah
         self.image_processor.start_processing(file_paths)
         

@@ -17,8 +17,13 @@ from PySide6.QtCore import QObject, Signal
 class ProgressSignal(QObject):
     progress = Signal(str, int)  # Signal with message and percentage
 
+# Add a signal class for file updates
+class FileUpdateSignal(QObject):
+    file_update = Signal(str, bool)  # Signal with file path and completion flag
+
 class ImageProcessor:
-    def __init__(self, chromedriver_path: str = None, progress_callback: Callable = None, progress_signal: ProgressSignal = None):
+    def __init__(self, chromedriver_path: str = None, progress_callback: Callable = None, 
+                 progress_signal: ProgressSignal = None, file_update_signal: FileUpdateSignal = None):
         """
         Inisialisasi prosesor gambar
         
@@ -26,10 +31,12 @@ class ImageProcessor:
             chromedriver_path: Path ke chromedriver.exe
             progress_callback: Callback untuk melaporkan progres ke UI (deprecated)
             progress_signal: Signal untuk melaporkan progres ke UI (recommended)
+            file_update_signal: Signal untuk melaporkan file yang sedang diproses
         """
         self.chromedriver_path = chromedriver_path or os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "driver", "chromedriver.exe")
         self.progress_callback = progress_callback  # Keep for backward compatibility
         self.progress_signal = progress_signal      # New signal-based approach
+        self.file_update_signal = file_update_signal  # Signal for file updates
         self.should_stop = False
         self.processing_thread = None
         self.total_processed = 0
@@ -143,6 +150,11 @@ class ImageProcessor:
                 break
                 
             current_num = i + 1
+            
+            # Signal that we're processing a new file
+            if self.file_update_signal:
+                self.file_update_signal.file_update.emit(file_path, False)
+                
             self.update_progress(
                 f"Memproses file", 
                 percentage=int((i / total_files) * 100),
@@ -168,10 +180,16 @@ class ImageProcessor:
                 })
         
         self.end_time = datetime.now()
+        
+        # Signal processing completion for UI update
+        if self.file_update_signal:
+            self.file_update_signal.file_update.emit("", True)
+            
         self.update_progress(
             f"Selesai! Berhasil: {self.total_processed}, Gagal: {self.total_failed}",
             percentage=100
         )
+    
     def process_image(self, file_path: str, current_num: int, total_files: int) -> Dict:
         """
         Proses satu file gambar
