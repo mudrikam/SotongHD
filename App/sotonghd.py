@@ -270,10 +270,51 @@ class SotongHDApp(QMainWindow):
         self.subtitleLabel = self.findChild(QWidget, "subtitleLabel")
         self.progress_bar = self.findChild(QProgressBar, "progressBar")
         
-        # Create a scalable image label for thumbnails
+        # Get spacers
+        self.topSpacer = self.findChild(QWidget, "verticalSpacer")
+        self.bottomSpacer = self.findChild(QWidget, "verticalSpacer_2")
+        
+        # Ensure proper expansion behavior by configuring all parts of the layout hierarchy
+        # Main window should be able to resize
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        
+        # Central widget should expand
+        central_widget = self.centralWidget()
+        if central_widget:
+            central_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+            
+        # Configure resize behavior for dropFrame to allow it to expand
+        if self.dropFrame:
+            # Set size policy to expand in both directions with a high stretch factor
+            self.dropFrame.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+            
+            # Find the vertical layout that contains the dropFrame
+            parent_layout = None
+            if self.dropFrame.parent() and self.dropFrame.parent().layout():
+                parent_layout = self.dropFrame.parent().layout()
+                # Ensure the layout stretches
+                for i in range(parent_layout.count()):
+                    parent_layout.setStretch(i, 1)
+            
+            # Make the layout inside the dropFrame stretch properly
+            if self.dropFrame.layout():
+                # Set stretch for all items in the dropArea layout
+                layout = self.dropFrame.layout()
+                layout.setStretch(0, 1)  # Top spacer gets stretch factor
+                layout.setStretch(4, 1)  # Bottom spacer gets stretch factor
+        
+        # Set all labels to have proper sizing policies
+        if self.titleLabel:
+            self.titleLabel.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Minimum)
+        
+        if self.subtitleLabel:
+            self.subtitleLabel.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Minimum)
+        
+        # Create a scalable image label for thumbnails with proper size policy
         self.thumbnail_label = ScalableImageLabel()
         self.thumbnail_label.setAlignment(Qt.AlignCenter)
         self.thumbnail_label.hide()  # Initially hidden
+        self.thumbnail_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         
         # Keep reference to original title label properties
         if self.titleLabel:
@@ -350,6 +391,13 @@ class SotongHDApp(QMainWindow):
           
         # Show the main window
         self.show()
+        
+    # Override resizeEvent to update layout when window is resized
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        # If we have an active thumbnail, update it to match the new window size
+        if hasattr(self, 'thumbnail_label') and self.thumbnail_label.isVisible() and hasattr(self.thumbnail_label, 'updatePixmap'):
+            self.thumbnail_label.updatePixmap()
 
     def update_progress(self, message, percentage=None):
         """
@@ -402,11 +450,34 @@ class SotongHDApp(QMainWindow):
             if hasattr(self, 'iconLabel') and self.iconLabel:
                 self.iconLabel.hide()
                 
+            # Completely remove spacers from layout instead of just hiding them
+            # This ensures they don't constrain the layout expansion
+            if hasattr(self, 'topSpacer') and self.topSpacer and self.dropFrame and self.dropFrame.layout():
+                layout = self.dropFrame.layout()
+                layout.removeItem(self.topSpacer)
+                
+            if hasattr(self, 'bottomSpacer') and self.bottomSpacer and self.dropFrame and self.dropFrame.layout():
+                layout = self.dropFrame.layout()
+                layout.removeItem(self.bottomSpacer)
+                
+            # Set the thumbnail label to take up maximum space
+            if hasattr(self, 'thumbnail_label'):
+                self.thumbnail_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+                self.thumbnail_label.setMinimumHeight(300)  # Set a larger minimum height
+                
             # Get the parent layout of the title label
             if hasattr(self, 'titleLabel') and self.titleLabel:
                 # Hide the title label and show the thumbnail label
                 self.titleLabel.hide()
                 self.thumbnail_label.show()
+                
+                # Get the layout
+                parent_layout = self.titleLabel.parentWidget().layout()
+                if parent_layout:
+                    # Make sure the thumbnail gets most of the layout priority
+                    title_index = parent_layout.indexOf(self.thumbnail_label)
+                    if title_index >= 0:
+                        parent_layout.setStretch(title_index, 10)  # Give it high stretch priority
                 
                 # Load the image in the scalable label
                 success = self.thumbnail_label.setImagePath(file_path)
@@ -421,6 +492,11 @@ class SotongHDApp(QMainWindow):
                 if self.subtitleLabel:
                     self.subtitleLabel.setText(f"Memproses: {file_name}")
                     
+            # Force a layout update
+            if self.dropFrame:
+                self.dropFrame.updateGeometry()
+                self.dropFrame.layout().activate()
+                
         except Exception as e:
             print(f"Error showing thumbnail: {e}")
             self.restore_title_label()  # Restore on error
@@ -431,6 +507,17 @@ class SotongHDApp(QMainWindow):
             # Show icon label when finished
             if hasattr(self, 'iconLabel') and self.iconLabel:
                 self.iconLabel.show()
+                
+            # Restore spacers to layout
+            if hasattr(self, 'topSpacer') and self.topSpacer and self.dropFrame and self.dropFrame.layout():
+                layout = self.dropFrame.layout()
+                # Add top spacer back at index 0
+                layout.insertItem(0, self.topSpacer)
+                
+            if hasattr(self, 'bottomSpacer') and self.bottomSpacer and self.dropFrame and self.dropFrame.layout():
+                layout = self.dropFrame.layout()
+                # Add bottom spacer back at the end
+                layout.addItem(self.bottomSpacer)
                 
             # Hide thumbnail label and show title label
             if hasattr(self, 'thumbnail_label'):
@@ -451,6 +538,12 @@ class SotongHDApp(QMainWindow):
                 Upscale tidak dilakukan oleh aplikasi ini, tapi oleh server Picsart.
                 Hasil akan disimpan otomatis ke folder 'UPSCALE' sumber file asli. Fitur gratis Picsart hanya mendukung hingga 2x upscale. Gunakan seperlunya.
                 """)
+                
+            # Force a layout update
+            if self.dropFrame:
+                self.dropFrame.updateGeometry()
+                self.dropFrame.layout().activate()
+                
         except Exception as e:
             print(f"Error restoring title label: {e}")
 
