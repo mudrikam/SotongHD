@@ -16,13 +16,13 @@
   <widget class="QWidget" name="centralwidget">
    <layout class="QVBoxLayout" name="verticalLayout_2">
     <item>
-     <layout class="QVBoxLayout" name="verticalLayout" stretch="1">
+     <layout class="QVBoxLayout" name="verticalLayout">
       <item>
        <widget class="QFrame" name="dropFrame">
         <property name="sizePolicy">
          <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
           <horstretch>0</horstretch>
-          <verstretch>1</verstretch>
+          <verstretch>0</verstretch>
          </sizepolicy>
         </property>
         <property name="styleSheet">
@@ -39,7 +39,7 @@
         <property name="frameShadow">
          <enum>QFrame::Raised</enum>
         </property>
-        <layout class="QVBoxLayout" name="dropAreaLayout" stretch="1,0,0,0,1">
+        <layout class="QVBoxLayout" name="dropAreaLayout">
          <item>
           <spacer name="verticalSpacer">
            <property name="orientation">
@@ -89,6 +89,9 @@
              <bold>true</bold>
             </font>
            </property>
+           <property name="styleSheet">
+            <string notr="true">color : rgba(138, 60, 226, 0.62);</string>
+           </property>
            <property name="text">
             <string>LEMPARKAN GAMBAR KE SINI!</string>
            </property>
@@ -104,6 +107,9 @@
              <pointsize>10</pointsize>
              <italic>false</italic>
             </font>
+           </property>
+           <property name="styleSheet">
+            <string notr="true">color : rgba(148, 139, 160, 0.42);</string>
            </property>
            <property name="text">
             <string>
