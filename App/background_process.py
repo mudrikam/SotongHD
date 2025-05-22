@@ -12,6 +12,7 @@ from typing import List, Dict, Tuple, Callable
 import threading
 import sys
 from PySide6.QtCore import QObject, Signal
+from .logger import logger
 
 # Add a signal class for progress updates
 class ProgressSignal(QObject):
@@ -46,6 +47,8 @@ class ImageProcessor:
         self.end_time = None
         self.polling_interval = 1  # cek setiap 1 detik (sesuai permintaan)
         
+        logger.info("SotongHD Image Processor diinisialisasi")
+        
     def update_progress(self, message: str, percentage: int = None, current: int = None, total: int = None):
         """
         Update progres ke UI
@@ -64,6 +67,13 @@ class ImageProcessor:
             self.progress_signal.progress.emit(message, percentage if percentage is not None else 0)
         elif self.progress_callback:
             self.progress_callback(message, percentage)
+        
+        # Only log significant progress updates (starting, completion, and milestones)
+        is_milestone = percentage is not None and (percentage == 0 or percentage == 100 or percentage % 25 == 0)
+        is_important_message = "berhasil" in message.lower() or "gagal" in message.lower() or "error" in message.lower()
+        
+        if is_milestone or is_important_message:
+            logger.info(message, f"{percentage}%" if percentage is not None else None)
     
     def get_files_to_process(self, paths: List[str]) -> List[str]:
         """
@@ -120,7 +130,10 @@ class ImageProcessor:
         
         if not files_to_process:
             self.update_progress("Tidak ada file gambar ditemukan", 100)
+            logger.warning("Tidak ada file gambar ditemukan", f"Paths: {', '.join(paths)}")
             return
+        
+        logger.info(f"Mulai memproses {len(files_to_process)} file gambar")
         
         # Mulai thread untuk pemrosesan
         self.processing_thread = threading.Thread(
@@ -132,8 +145,9 @@ class ImageProcessor:
     
     def stop_processing(self):
         """Menghentikan pemrosesan"""
-        self.should_stop = True
         if self.processing_thread and self.processing_thread.is_alive():
+            logger.info("Menghentikan pemrosesan berdasarkan permintaan pengguna")
+            self.should_stop = True
             self.processing_thread.join(10)  # Tunggu maksimal 10 detik
     
     def _process_files(self, files: List[str]):
@@ -147,9 +161,15 @@ class ImageProcessor:
         
         for i, file_path in enumerate(files):
             if self.should_stop:
+                logger.info("Pemrosesan dihentikan")
                 break
                 
             current_num = i + 1
+            file_name = Path(file_path).name
+            
+            # Only log the start of processing for each file, not detailed steps
+            if current_num == 1 or current_num == total_files or current_num % 5 == 0:
+                logger.info(f"Memproses file {current_num} dari {total_files}", f"{file_name}")
             
             # Signal that we're processing a new file
             if self.file_update_signal:
@@ -168,16 +188,14 @@ class ImageProcessor:
                 
                 if result["success"]:
                     self.total_processed += 1
+                    logger.sukses("Berhasil memproses gambar", file_name)
                 else:
                     self.total_failed += 1
+                    logger.kesalahan("Gagal memproses gambar", f"{file_name} - {result.get('error', 'Alasan tidak diketahui')}")
                     
             except Exception as e:
                 self.total_failed += 1
-                self.results.append({
-                    "file_path": file_path,
-                    "success": False,
-                    "error": str(e)
-                })
+                logger.kesalahan("Error saat memproses gambar", f"{file_name} - {str(e)}")
         
         self.end_time = datetime.now()
         
@@ -188,6 +206,11 @@ class ImageProcessor:
         self.update_progress(
             f"Selesai! Berhasil: {self.total_processed}, Gagal: {self.total_failed}",
             percentage=100
+        )
+        
+        logger.sukses(
+            f"Selesai memproses semua gambar. Berhasil: {self.total_processed}, Gagal: {self.total_failed}",
+            f"Durasi: {(self.end_time - self.start_time).total_seconds():.1f} detik"
         )
     
     def process_image(self, file_path: str, current_num: int, total_files: int) -> Dict:
@@ -202,6 +225,8 @@ class ImageProcessor:
         Returns:
             Dict: Hasil pemrosesan dalam bentuk dictionary
         """
+        file_name = Path(file_path).name
+        
         result = {
             "file_path": file_path,
             "success": False,
@@ -233,6 +258,7 @@ class ImageProcessor:
         
         try:
             # ===== TAHAP 1: Setup Browser (0-5%) =====
+            # Don't log routine browser setup steps
             self.update_progress(
                 f"Mempersiapkan chrome untuk file {Path(file_path).name}", 
                 percentage=calculate_global_percent(percentages["browser_setup"] / 2),
@@ -264,6 +290,7 @@ class ImageProcessor:
                 time.sleep(2)  # Tunggu halaman dan elemen render
 
                 # ===== TAHAP 2: Upload Gambar (5-15%) =====
+                # Only log key events, not routine steps
                 self.update_progress(
                     f"Mengunggah gambar: {Path(file_path).name}", 
                     percentage=calculate_global_percent(percentages["browser_setup"] + percentages["upload"] / 2),
@@ -287,6 +314,7 @@ class ImageProcessor:
                 )
                 
                 # ===== TAHAP 3: Menunggu Proses Enhancement (15-80%) =====
+                # Only log the start of waiting, not every interval
                 self.update_progress(
                     f"Menunggu proses enhancement: {Path(file_path).name}", 
                     percentage=calculate_global_percent(percentages["browser_setup"] + percentages["upload"] + 5),
@@ -359,6 +387,7 @@ class ImageProcessor:
                 
                 if self.should_stop:
                     result["error"] = "Proses dihentikan pengguna"
+                    logger.info("Pemrosesan dibatalkan oleh pengguna", file_name)
                     return result
                     
                 if not found_image:
@@ -369,7 +398,7 @@ class ImageProcessor:
                         total=total_files
                     )
                     
-                    result["error"] = "Tidak dapat menemukan gambar hasil enhancement dalam batas waktu"
+                    logger.kesalahan("Timeout menunggu hasil enhancement", file_name)
                     # Ambil screenshot sebagai bukti
                     screenshot_path = os.path.join(os.path.dirname(file_path), "UPSCALE", f"error_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png")
                     os.makedirs(os.path.dirname(screenshot_path), exist_ok=True)
@@ -377,12 +406,8 @@ class ImageProcessor:
                     return result
                 
                 # ===== TAHAP 4: Download Gambar (80-95%) =====
-                self.update_progress(
-                    f"Gambar enhancement ditemukan, mengunduh: {Path(file_path).name}", 
-                    percentage=calculate_global_percent(percentages["browser_setup"] + percentages["upload"] + percentages["processing"]),
-                    current=current_num, 
-                    total=total_files
-                )
+                # Log important milestone - image found
+                logger.info(f"Menemukan gambar hasil", file_name)
                 
                 # Download image
                 response = requests.get(image_url, stream=True)
@@ -408,6 +433,9 @@ class ImageProcessor:
                     # Simpan file
                     enhanced_path = os.path.join(output_folder, f"{file_name}_upscaled_{timestamp}.png")
                     
+                    enhanced_file_name = Path(enhanced_path).name
+                    # Log saving - important step
+                    logger.info(f"Menyimpan hasil enhancement", enhanced_file_name)
                     self.update_progress(
                         f"Menyimpan gambar: {Path(enhanced_path).name}", 
                         percentage=calculate_global_percent(100 - percentages["saving"]),
@@ -427,6 +455,9 @@ class ImageProcessor:
                         total=total_files
                     )
                     
+                    # Log success - critical information
+                    logger.sukses(f"Berhasil menyimpan gambar enhancement", enhanced_file_name)
+                    
                     result["success"] = True
                     result["enhanced_path"] = enhanced_path
                 else:
@@ -437,11 +468,15 @@ class ImageProcessor:
                         total=total_files
                     )
                     
+                    # Log failure - critical information
+                    logger.kesalahan(f"Gagal mengunduh hasil. Status code: {response.status_code}", file_name)
                     result["error"] = f"Gagal mengunduh gambar. Status code: {response.status_code}"
             finally:
                 driver.quit()
                 
         except Exception as e:
+            # Always log errors - critical information
+            logger.kesalahan(f"Error saat memproses gambar", f"{file_name} - {str(e)}")
             result["error"] = str(e)
             
         result["end_time"] = datetime.now()

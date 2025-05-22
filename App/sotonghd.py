@@ -4,18 +4,20 @@ import time
 from datetime import datetime, timedelta
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QMessageBox, QProgressBar, 
                               QVBoxLayout, QDialog, QLabel, QTextBrowser, QPushButton, QFileDialog,
-                              QHBoxLayout, QGridLayout, QScrollArea, QSizePolicy)
+                              QHBoxLayout, QGridLayout, QScrollArea, QSizePolicy, QTextEdit)
 from PySide6.QtUiTools import QUiLoader
 from PySide6.QtGui import QIcon, QPixmap, QPainter, QImageReader, QDragEnterEvent, QDropEvent, QPainterPath
 from PySide6.QtCore import Qt, QRect, QPoint, QUrl, Signal, QObject, QTimer, QSize, QRectF, QMimeData
 from pathlib import Path
 from .background_process import ImageProcessor, ProgressSignal, FileUpdateSignal
+from .logger import logger
 
 # Import QtAwesome for icons - make sure it's installed
 try:
     import qtawesome as qta
+    logger.info("QtAwesome tersedia, ikon akan ditampilkan")
 except ImportError:
-    # If qtawesome is not installed, we'll handle this gracefully
+    logger.peringatan("QtAwesome tidak tersedia, ikon tidak akan ditampilkan")
     qta = None
 
 
@@ -241,6 +243,8 @@ class SotongHDApp(QMainWindow):
     def __init__(self, base_dir, icon_path=None):
         super().__init__()
         
+        logger.info("Memulai aplikasi SotongHD")
+        
         # Store the base directory
         self.base_dir = base_dir
         
@@ -252,11 +256,18 @@ class SotongHDApp(QMainWindow):
             self.setWindowIcon(QIcon(icon_path))
             # Set application-wide icon
             QApplication.setWindowIcon(QIcon(icon_path))
+        else:
+            logger.peringatan("Ikon aplikasi tidak ditemukan", icon_path)
         
         # Load the UI
         ui_file = os.path.join(base_dir, "App", "main_window.ui")
-        loader = QUiLoader()
-        self.ui = loader.load(ui_file)
+        try:
+            loader = QUiLoader()
+            self.ui = loader.load(ui_file)
+        except Exception as e:
+            logger.kesalahan("Gagal memuat UI", str(e))
+            QMessageBox.critical(self, "Error", f"Gagal memuat UI: {str(e)}")
+            sys.exit(1)
         
         # Set window properties from UI
         self.setGeometry(self.ui.geometry())
@@ -277,6 +288,11 @@ class SotongHDApp(QMainWindow):
         self.titleLabel = self.findChild(QWidget, "titleLabel")
         self.subtitleLabel = self.findChild(QWidget, "subtitleLabel")
         self.progress_bar = self.findChild(QProgressBar, "progressBar")
+        self.log_display = self.findChild(QTextEdit, "logDisplay")
+        
+        # Connect the logger to the UI log display
+        if self.log_display:
+            logger.set_log_widget(self.log_display)
         
         # Get the buttons
         self.openFolderButton = self.findChild(QPushButton, "openFolderButton")
@@ -410,21 +426,27 @@ class SotongHDApp(QMainWindow):
         self.current_image = None
         
         # Initialize image processor
-        chromedriver_path = os.path.join(base_dir, "driver", "chromedriver.exe")
-        
-        # Create a progress signal instance and connect it to our handler
-        self.progress_signal = ProgressSignal()
-        self.progress_signal.progress.connect(self.progress_handler.handle_progress)
-        
-        # Create a file update signal and connect it
-        self.file_update_signal = FileUpdateSignal()
-        self.file_update_signal.file_update.connect(self.progress_handler.handle_file_update)
-        
-        self.image_processor = ImageProcessor(
-            chromedriver_path=chromedriver_path,
-            progress_signal=self.progress_signal,
-            file_update_signal=self.file_update_signal
-        )
+        try:
+            chromedriver_path = os.path.join(base_dir, "driver", "chromedriver.exe")
+            
+            # Create a progress signal instance and connect it to our handler
+            self.progress_signal = ProgressSignal()
+            self.progress_signal.progress.connect(self.progress_handler.handle_progress)
+            
+            # Create a file update signal and connect it
+            self.file_update_signal = FileUpdateSignal()
+            self.file_update_signal.file_update.connect(self.progress_handler.handle_file_update)
+            
+            self.image_processor = ImageProcessor(
+                chromedriver_path=chromedriver_path,
+                progress_signal=self.progress_signal,
+                file_update_signal=self.file_update_signal
+            )
+            logger.sukses("Aplikasi SotongHD siap digunakan")
+            logger.info("Untuk memulai, seret dan lepas gambar atau folder ke area drop")
+        except Exception as e:
+            logger.kesalahan("Gagal menginisialisasi image processor", str(e))
+            QMessageBox.critical(self, "Error", f"Gagal menginisialisasi processor: {str(e)}")
         
         # Apply the theme style to drop frame
         if self.dropFrame:
@@ -490,6 +512,7 @@ class SotongHDApp(QMainWindow):
             file_path: Path to the image file
         """
         if not file_path or not os.path.exists(file_path):
+            logger.peringatan("Thumbnail tidak dapat ditampilkan, file tidak ditemukan", file_path)
             return
             
         try:
@@ -530,7 +553,7 @@ class SotongHDApp(QMainWindow):
                 success = self.thumbnail_label.setImagePath(file_path)
                 
                 if not success:
-                    # Fallback if loading fails
+                    logger.peringatan("Gagal memuat thumbnail", file_path)
                     self.restore_title_label()
                     return
                 
@@ -545,6 +568,7 @@ class SotongHDApp(QMainWindow):
                 self.dropFrame.layout().activate()
                 
         except Exception as e:
+            logger.kesalahan("Error menampilkan thumbnail", f"{file_path} - {str(e)}")
             print(f"Error showing thumbnail: {e}")
             self.restore_title_label()  # Restore on error
     
@@ -592,6 +616,7 @@ class SotongHDApp(QMainWindow):
                 self.dropFrame.layout().activate()
                 
         except Exception as e:
+            logger.kesalahan("Error restoring title label", str(e))
             print(f"Error restoring title label: {e}")
 
     def dragEnterEvent(self, event: QDragEnterEvent):
@@ -654,6 +679,8 @@ class SotongHDApp(QMainWindow):
                 file_paths.append(file_path)
             
             if file_paths:
+                paths_str = ", ".join([os.path.basename(p) for p in file_paths])
+                logger.info(f"File diterima: {len(file_paths)} item", paths_str)
                 self.process_files(file_paths)
     
     def is_image_file(self, file_path):
@@ -674,6 +701,10 @@ class SotongHDApp(QMainWindow):
         """
         # Reset UI to initial state
         self.restore_title_label()
+        
+        # Log file yang akan diproses
+        paths_str = ", ".join([os.path.basename(p) for p in file_paths])
+        logger.info(f"Memproses {len(file_paths)} item", paths_str)
         
         # Mulai pemrosesan gambar dalam thread terpisah
         self.image_processor.start_processing(file_paths)
@@ -696,6 +727,7 @@ class SotongHDApp(QMainWindow):
     
     def show_statistics(self, stats):
         """Tampilkan dialog statistik"""
+        logger.info("Statistik proses", f"Berhasil: {stats['total_processed']}, Gagal: {stats['total_failed']}")
         dialog = StatsDialog(self, stats)
         dialog.exec()
     
@@ -709,6 +741,7 @@ class SotongHDApp(QMainWindow):
         )
         
         if folder_path:
+            logger.info("Folder dipilih", folder_path)
             # Process the selected folder just like drag and drop
             self.process_files([folder_path])
     
@@ -722,6 +755,7 @@ class SotongHDApp(QMainWindow):
         )
         
         if file_paths:
+            logger.info(f"File dipilih: {len(file_paths)} item")
             # Process the selected files just like drag and drop
             self.process_files(file_paths)
     
@@ -743,7 +777,6 @@ class SotongHDApp(QMainWindow):
         
     def closeEvent(self, event):
         """Handle when the window is closed"""
-        # Stop any ongoing processing
         if hasattr(self, 'image_processor'):
             self.image_processor.stop_processing()
         
