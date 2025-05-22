@@ -272,7 +272,8 @@ class ImageProcessor:
                 )
                 
                 # Cari elemen input type="file" (biasanya disembunyikan oleh CSS)
-                input_file = driver.find_element(By.XPATH, "//input[@type='file']")
+                # Use a more reliable selector targeting the uploadArea which is constant
+                input_file = driver.find_element(By.CSS_SELECTOR, "#uploadArea input[type='file']")
                 
                 # Upload file ke elemen input
                 input_file.send_keys(file_path)
@@ -325,9 +326,11 @@ class ImageProcessor:
                         # Coba beberapa selector berbeda untuk menemukan gambar yang dienhance
                         possible_selectors = [
                             'div[data-testid="EnhancedImage"] img',
-                            'div.widget-widgetContainer-0-1-1014[data-testid="EnhancedImage"] img',
+                            'div[data-testid="EnhancedImage"][class*="widget-widgetContainer"] img',
+                            'div[data-testid="EnhancedImage"] *[src]',
                             'img[alt*="enhanced"]',
-                            'div[data-testid="EnhancedImage"] *[src]'
+                            'div[data-testid="EnhancedImage"]>div>img',
+                            'div[data-testid="EnhancedImage"] picture img'
                         ]
                         
                         for selector in possible_selectors:
