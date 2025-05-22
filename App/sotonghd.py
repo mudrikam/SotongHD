@@ -11,6 +11,13 @@ from PySide6.QtCore import Qt, QRect, QPoint, QUrl, Signal, QObject, QTimer, QSi
 from pathlib import Path
 from .background_process import ImageProcessor, ProgressSignal, FileUpdateSignal
 
+# Import QtAwesome for icons - make sure it's installed
+try:
+    import qtawesome as qta
+except ImportError:
+    # If qtawesome is not installed, we'll handle this gracefully
+    qta = None
+
 
 class ScalableImageLabel(QLabel):
     def __init__(self, parent=None):
@@ -270,6 +277,45 @@ class SotongHDApp(QMainWindow):
         self.titleLabel = self.findChild(QWidget, "titleLabel")
         self.subtitleLabel = self.findChild(QWidget, "subtitleLabel")
         self.progress_bar = self.findChild(QProgressBar, "progressBar")
+        
+        # Get the buttons
+        self.openFolderButton = self.findChild(QPushButton, "openFolderButton")
+        self.openFilesButton = self.findChild(QPushButton, "openFilesButton")
+        self.whatsappButton = self.findChild(QPushButton, "whatsappButton")
+        
+        # Add icons to buttons if qtawesome is available
+        if qta:
+            # WhatsApp button with whatsapp icon
+            whatsapp_icon = qta.icon('fa5b.whatsapp')
+            if self.whatsappButton:
+                self.whatsappButton.setIcon(whatsapp_icon)
+                self.whatsappButton.setIconSize(QSize(24, 24))
+                self.whatsappButton.clicked.connect(self.open_whatsapp_group)
+            
+            # Open Folder button with folder icon
+            folder_icon = qta.icon('fa5s.folder-open')
+            if self.openFolderButton:
+                self.openFolderButton.setIcon(folder_icon)
+                self.openFolderButton.setIconSize(QSize(16, 16))
+                self.openFolderButton.clicked.connect(self.open_folder_dialog)
+            
+            # Open Files button with file icon
+            files_icon = qta.icon('fa5s.file-image')
+            if self.openFilesButton:
+                self.openFilesButton.setIcon(files_icon)
+                self.openFilesButton.setIconSize(QSize(16, 16))
+                self.openFilesButton.clicked.connect(self.open_files_dialog)
+        else:
+            # If qtawesome is not available, connect buttons without icons
+            if self.whatsappButton:
+                self.whatsappButton.setText("WA")
+                self.whatsappButton.clicked.connect(self.open_whatsapp_group)
+            
+            if self.openFolderButton:
+                self.openFolderButton.clicked.connect(self.open_folder_dialog)
+                
+            if self.openFilesButton:
+                self.openFilesButton.clicked.connect(self.open_files_dialog)
         
         # Get spacers
         self.topSpacer = self.findChild(QWidget, "verticalSpacer")
@@ -618,6 +664,7 @@ class SotongHDApp(QMainWindow):
         # Check if it's a supported image format
         reader = QImageReader(file_path)
         return reader.canRead()
+    
     def process_files(self, file_paths):
         """
         Proses file atau folder yang diberikan
@@ -651,6 +698,38 @@ class SotongHDApp(QMainWindow):
         """Tampilkan dialog statistik"""
         dialog = StatsDialog(self, stats)
         dialog.exec()
+    
+    def open_folder_dialog(self):
+        """Open a file dialog to select folders to process"""
+        folder_path = QFileDialog.getExistingDirectory(
+            self,
+            "Select Folder with Images",
+            os.path.expanduser("~"),
+            QFileDialog.ShowDirsOnly
+        )
+        
+        if folder_path:
+            # Process the selected folder just like drag and drop
+            self.process_files([folder_path])
+    
+    def open_files_dialog(self):
+        """Open a file dialog to select multiple image files to process"""
+        file_paths, _ = QFileDialog.getOpenFileNames(
+            self,
+            "Select Images",
+            os.path.expanduser("~"),
+            "Image Files (*.jpg *.jpeg *.png *.bmp *.gif);;All Files (*)"
+        )
+        
+        if file_paths:
+            # Process the selected files just like drag and drop
+            self.process_files(file_paths)
+    
+    def open_whatsapp_group(self):
+        """Opens the WhatsApp group link in the default browser"""
+        whatsapp_group_url = "https://chat.whatsapp.com/CMQvDxpCfP647kBBA6dRn3"
+        from PySide6.QtGui import QDesktopServices
+        QDesktopServices.openUrl(QUrl(whatsapp_group_url))
     
     def center_on_screen(self):
         """Center the window on the screen."""
