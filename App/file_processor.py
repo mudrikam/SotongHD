@@ -49,6 +49,11 @@ def open_whatsapp_group(group_url="https://chat.whatsapp.com/CMQvDxpCfP647kBBA6d
 def show_statistics(parent, stats):
     """Tampilkan dialog statistik"""
     logger.info("Statistik proses", f"Berhasil: {stats['total_processed']}, Gagal: {stats['total_failed']}")
+    
+    # Make sure processed_folders exists in stats
+    if 'processed_folders' not in stats:
+        stats['processed_folders'] = []
+    
     dialog = StatsDialog(parent, stats)
     dialog.exec()
 

@@ -272,6 +272,7 @@ class ImageProcessor:
             chrome_options.add_argument("--disable-gpu")
             chrome_options.add_argument("--window-size=1366,768")
             chrome_options.add_argument("--log-level=3")
+            chrome_options.add_argument("--incognito")  # Add incognito mode
             chrome_options.add_experimental_option('excludeSwitches', ['enable-logging'])
 
             # Inisialisasi Chrome dengan lokasi driver
