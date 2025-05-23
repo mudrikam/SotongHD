@@ -19,7 +19,7 @@ def open_folder_dialog(parent):
     folder_path = QFileDialog.getExistingDirectory(
         parent,
         "Select Folder with Images",
-        os.path.expanduser("~"),
+        os.path.expanduser("~"),  # Default to home directory
         QFileDialog.ShowDirsOnly
     )
     
@@ -33,7 +33,7 @@ def open_files_dialog(parent):
     file_paths, _ = QFileDialog.getOpenFileNames(
         parent,
         "Select Images",
-        os.path.expanduser("~"),
+        os.path.expanduser("~"),  # Default to home directory
         "Image Files (*.jpg *.jpeg *.png *.bmp *.gif);;All Files (*)"
     )
     

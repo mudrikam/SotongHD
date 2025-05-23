@@ -3,7 +3,7 @@ import sys
 from datetime import datetime
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QMessageBox, QProgressBar, 
                               QVBoxLayout, QLabel, QPushButton, QFileDialog,
-                              QHBoxLayout, QGridLayout, QScrollArea, QSizePolicy, QTextEdit)
+                              QHBoxLayout, QGridLayout, QScrollArea, QSizePolicy, QTextEdit, QCheckBox)
 # Fix the import for QUiLoader - it should be from QtUiTools, not QtWidgets
 from PySide6.QtUiTools import QUiLoader
 from PySide6.QtGui import QIcon, QPixmap, QDragEnterEvent, QDropEvent
@@ -12,10 +12,12 @@ from pathlib import Path
 
 from .background_process import ImageProcessor, ProgressSignal, FileUpdateSignal
 from .logger import logger
-from .ui_helpers import ScalableImageLabel, center_window_on_screen, setup_drag_drop_style
+from .ui_helpers import (ScalableImageLabel, center_window_on_screen, setup_drag_drop_style, 
+                       setup_format_toggle)
 from .progress_handler import ProgressHandler, ProgressUIManager
 from .file_processor import (is_image_file, open_folder_dialog, open_files_dialog, 
                            open_whatsapp_group, show_statistics, confirm_stop_processing)
+from .config_manager import ConfigManager
 
 # Import QtAwesome for icons - make sure it's installed
 try:
@@ -107,6 +109,17 @@ class SotongHDApp(QMainWindow):
         # Set high resolution icon if available
         if self.iconLabel:
             self.setup_high_res_icon()
+        
+        # Set up format toggle
+        self.formatToggle = self.findChild(QCheckBox, "formatToggle")
+        self.formatLabel = self.findChild(QLabel, "formatLabel")
+        self.formatLabel2 = self.findChild(QLabel, "formatLabel2")
+        
+        # Initialize config manager
+        self.config_manager = ConfigManager(self.base_dir)
+        
+        # Set up format toggle using helper function
+        self.formatToggle, self.formatLabel, self.formatLabel2 = setup_format_toggle(self, self.config_manager)
     
     def setup_buttons(self):
         """Setup buttons and their icons"""
@@ -210,7 +223,8 @@ class SotongHDApp(QMainWindow):
             self.image_processor = ImageProcessor(
                 chromedriver_path=chromedriver_path,
                 progress_signal=self.progress_signal,
-                file_update_signal=self.file_update_signal
+                file_update_signal=self.file_update_signal,
+                config_manager=self.config_manager
             )
             logger.sukses("Aplikasi SotongHD siap digunakan")
             logger.info("Untuk memulai, seret dan lepas gambar atau folder ke area drop")

@@ -24,7 +24,8 @@ class FileUpdateSignal(QObject):
 
 class ImageProcessor:
     def __init__(self, chromedriver_path: str = None, progress_callback: Callable = None, 
-                 progress_signal: ProgressSignal = None, file_update_signal: FileUpdateSignal = None):
+                 progress_signal: ProgressSignal = None, file_update_signal: FileUpdateSignal = None,
+                 config_manager=None):
         """
         Inisialisasi prosesor gambar
         
@@ -33,6 +34,7 @@ class ImageProcessor:
             progress_callback: Callback untuk melaporkan progres ke UI (deprecated)
             progress_signal: Signal untuk melaporkan progres ke UI (recommended)
             file_update_signal: Signal untuk melaporkan file yang sedang diproses
+            config_manager: Manager for configuration settings
         """
         self.chromedriver_path = chromedriver_path or os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "driver", "chromedriver.exe")
         self.progress_callback = progress_callback  # Keep for backward compatibility
@@ -46,6 +48,7 @@ class ImageProcessor:
         self.start_time = None
         self.end_time = None
         self.polling_interval = 1  # cek setiap 1 detik (sesuai permintaan)
+        self.config_manager = config_manager
         
         logger.info("SotongHD Image Processor diinisialisasi")
         
@@ -475,22 +478,60 @@ class ImageProcessor:
                     output_folder = os.path.join(os.path.dirname(file_path), "UPSCALE")
                     os.makedirs(output_folder, exist_ok=True)
                     
-                    # Simpan file
-                    enhanced_path = os.path.join(output_folder, f"{file_name}_upscaled_{timestamp}.png")
+                    # Get output format from config
+                    output_format = "png"  # Default to PNG
+                    if self.config_manager:
+                        output_format = self.config_manager.get_output_format()
                     
-                    enhanced_file_name = Path(enhanced_path).name
-                    # Log saving - important step
-                    logger.info(f"Menyimpan hasil enhancement", enhanced_file_name)
-                    self.update_progress(
-                        f"Menyimpan gambar: {Path(enhanced_path).name}", 
-                        percentage=calculate_global_percent(100 - percentages["saving"]),
-                        current=current_num, 
-                        total=total_files
-                    )
+                    # Simpan file with the selected format
+                    enhanced_path = os.path.join(output_folder, f"{file_name}_upscaled_{timestamp}.{output_format}")
                     
-                    with open(enhanced_path, 'wb') as f:
-                        for chunk in response.iter_content(1024):
-                            f.write(chunk)
+                    # When downloading the image, convert to JPG if needed
+                    if output_format == "jpg" and response.status_code == 200:
+                        try:
+                            # Try importing PIL - if it's not available, we'll fall back to PNG
+                            try:
+                                from PIL import Image
+                                import io
+                                HAS_PIL = True
+                            except ImportError:
+                                HAS_PIL = False
+                                logger.peringatan("PIL tidak tersedia - tidak dapat konversi ke JPG", "Silakan install pillow: pip install pillow")
+                                # Fallback to PNG
+                                enhanced_path = os.path.join(output_folder, f"{file_name}_upscaled_{timestamp}.png")
+                                with open(enhanced_path, 'wb') as f:
+                                    for chunk in response.iter_content(1024):
+                                        f.write(chunk)
+                                        
+                            # If PIL is available, convert to JPG
+                            if HAS_PIL:
+                                # Save as PNG temporarily
+                                temp_path = os.path.join(output_folder, f"{file_name}_temp_{timestamp}.png")
+                                with open(temp_path, 'wb') as f:
+                                    for chunk in response.iter_content(1024):
+                                        f.write(chunk)
+                                
+                                # Convert to JPG with PIL
+                                img = Image.open(temp_path)
+                                rgb_img = img.convert('RGB')  # Convert to RGB (for PNG with transparency)
+                                rgb_img.save(enhanced_path, quality=95)
+                                
+                                # Remove temporary file
+                                if os.path.exists(temp_path):
+                                    os.remove(temp_path)
+                                    
+                        except Exception as e:
+                            logger.kesalahan(f"Error saat konversi ke JPG", f"{file_name} - {str(e)}")
+                            # Fallback to PNG
+                            enhanced_path = os.path.join(output_folder, f"{file_name}_upscaled_{timestamp}.png")
+                            with open(enhanced_path, 'wb') as f:
+                                for chunk in response.iter_content(1024):
+                                    f.write(chunk)
+                    else:
+                        # Original PNG saving code
+                        with open(enhanced_path, 'wb') as f:
+                            for chunk in response.iter_content(1024):
+                                f.write(chunk)
                     
                     # Proses selesai untuk file ini
                     self.update_progress(
@@ -501,7 +542,7 @@ class ImageProcessor:
                     )
                     
                     # Log success - critical information
-                    logger.sukses(f"Berhasil menyimpan gambar enhancement", enhanced_file_name)
+                    logger.sukses(f"Berhasil menyimpan gambar enhancement", enhanced_path)
                     
                     result["success"] = True
                     result["enhanced_path"] = enhanced_path
