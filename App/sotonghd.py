@@ -1,16 +1,21 @@
 import os
 import sys
-import time
-from datetime import datetime, timedelta
+from datetime import datetime
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QMessageBox, QProgressBar, 
-                              QVBoxLayout, QDialog, QLabel, QTextBrowser, QPushButton, QFileDialog,
+                              QVBoxLayout, QLabel, QPushButton, QFileDialog,
                               QHBoxLayout, QGridLayout, QScrollArea, QSizePolicy, QTextEdit)
+# Fix the import for QUiLoader - it should be from QtUiTools, not QtWidgets
 from PySide6.QtUiTools import QUiLoader
-from PySide6.QtGui import QIcon, QPixmap, QPainter, QImageReader, QDragEnterEvent, QDropEvent, QPainterPath
-from PySide6.QtCore import Qt, QRect, QPoint, QUrl, Signal, QObject, QTimer, QSize, QRectF, QMimeData
+from PySide6.QtGui import QIcon, QPixmap, QDragEnterEvent, QDropEvent
+from PySide6.QtCore import Qt, QTimer, QSize, QUrl, Signal, QObject
 from pathlib import Path
+
 from .background_process import ImageProcessor, ProgressSignal, FileUpdateSignal
 from .logger import logger
+from .ui_helpers import ScalableImageLabel, center_window_on_screen, setup_drag_drop_style
+from .progress_handler import ProgressHandler, ProgressUIManager
+from .file_processor import (is_image_file, open_folder_dialog, open_files_dialog, 
+                           open_whatsapp_group, show_statistics, confirm_stop_processing)
 
 # Import QtAwesome for icons - make sure it's installed
 try:
@@ -19,225 +24,6 @@ try:
 except ImportError:
     logger.peringatan("QtAwesome tidak tersedia, ikon tidak akan ditampilkan")
     qta = None
-
-
-class ScalableImageLabel(QLabel):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.original_pixmap = None
-        self.image_path = None
-        self.rounded_pixmap = None
-        # Set size policy to allow the widget to shrink
-        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        
-        # Remove background styling, only keep minimal padding
-        self.setStyleSheet("""
-            QLabel {
-                padding: 5px;
-                background-color: transparent;
-            }
-        """)
-        
-    def setImagePath(self, path):
-        """Menyimpan path gambar dan memuat pixmap original"""
-        if not os.path.exists(path):
-            return False
-            
-        # Ensure path is a string to avoid any type issues
-        self.image_path = str(path)
-        self.original_pixmap = QPixmap(self.image_path)
-        self.updatePixmap()
-        return not self.original_pixmap.isNull()
-        
-    def updatePixmap(self):
-        """Menyesuaikan ukuran gambar sesuai dengan ukuran label"""
-        if self.original_pixmap and not self.original_pixmap.isNull():
-            # Handle potential zero-sized widget
-            width = max(10, self.width() - 24)  # Account for padding and border
-            height = max(10, self.height() - 24)
-            
-            # Create a scaled version of the pixmap
-            self.scaled_pixmap = self.original_pixmap.scaled(
-                width, 
-                height,
-                Qt.KeepAspectRatio, 
-                Qt.SmoothTransformation
-            )
-            
-            # Don't set the pixmap directly - we'll draw it in paintEvent
-            self.setMinimumSize(100, 100)
-            self.update()  # Force a repaint
-    
-    def paintEvent(self, event):
-        """Override paint event to draw rounded image"""
-        super().paintEvent(event)
-        
-        if hasattr(self, 'scaled_pixmap') and self.scaled_pixmap and not self.scaled_pixmap.isNull():
-            painter = QPainter(self)
-            painter.setRenderHint(QPainter.Antialiasing)
-            painter.setRenderHint(QPainter.SmoothPixmapTransform)
-            
-            # Calculate centered position
-            pixmap_rect = self.scaled_pixmap.rect()
-            x = (self.width() - pixmap_rect.width()) // 2
-            y = (self.height() - pixmap_rect.height()) // 2
-            
-            # Create a rounded rect path with stronger radius
-            radius = 20  # Increased border radius for the image
-            path = QPainterPath()
-            path.addRoundedRect(
-                QRectF(x, y, pixmap_rect.width(), pixmap_rect.height()),
-                radius, radius
-            )
-            
-            # Set the clipping path to the rounded rectangle
-            painter.setClipPath(path)
-            
-            # Draw the pixmap inside the clipping path
-            painter.drawPixmap(x, y, self.scaled_pixmap)
-    
-    def resizeEvent(self, event):
-        """Event yang terpanggil saat widget di-resize"""
-        super().resizeEvent(event)
-        self.updatePixmap()
-        
-    # Override size hint methods to allow widget to shrink
-    def sizeHint(self):
-        return QSize(200, 200)
-        
-    def minimumSizeHint(self):
-        return QSize(10, 10)
-
-
-class StatsDialog(QDialog):
-    """Dialog untuk menampilkan statistik pemrosesan."""
-    
-    def __init__(self, parent=None, stats=None):
-        super().__init__(parent)
-        self.stats = stats
-        
-        # Set dialog properties
-        self.setWindowTitle("Statistik SotongHD")
-        self.setMinimumSize(600, 400)
-        
-        # Create a layout for the dialog
-        self.main_layout = QVBoxLayout(self)
-        
-        try:
-            # Load UI
-            ui_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "stats_dialog.ui")
-            loader = QUiLoader()
-            self.ui = loader.load(ui_file)
-            
-            # Add the loaded UI to our dialog's layout
-            self.main_layout.addWidget(self.ui)
-            
-            # Set window icon
-            if self.parent() and self.parent().windowIcon():
-                self.setWindowIcon(self.parent().windowIcon())
-                
-                # Set icon in the dialog
-                icon = self.parent().windowIcon()
-                pixmap = icon.pixmap(64, 64)
-                self.ui.iconLabel.setPixmap(pixmap)
-                
-            # Connect close button
-            self.ui.closeButton.clicked.connect(self.accept)
-                
-            # Fill stats
-            self.populate_stats()
-        
-        except Exception as e:
-            # Create a fallback UI if loading fails
-            error_label = QLabel(f"Error loading stats UI: {str(e)}")
-            self.main_layout.addWidget(error_label)
-            
-            if stats:
-                # Display stats as text
-                stats_text = QTextBrowser()
-                stats_text.setText(
-                    f"Total Processed: {stats['total_processed']}\n"
-                    f"Total Failed: {stats['total_failed']}\n"
-                    f"Total Duration: {timedelta(seconds=int(stats['total_duration']))}\n"
-                    f"Start Time: {stats['start_time']}\n"
-                    f"End Time: {stats['end_time']}\n"
-                )
-                self.main_layout.addWidget(stats_text)
-                
-                # Add folders as text
-                if 'processed_folders' in stats and stats['processed_folders']:
-                    folders_text = QTextBrowser()
-                    folders_text.setText("Processed Folders:\n" + "\n".join(stats['processed_folders']))
-                    self.main_layout.addWidget(folders_text)
-            
-            # Add close button
-            close_btn = QPushButton("Close")
-            close_btn.clicked.connect(self.accept)
-            self.main_layout.addWidget(close_btn)
-        
-    def populate_stats(self):
-        """Populate stats data to UI elements"""
-        if not self.stats:
-            return
-            
-        try:
-            # Set values
-            self.ui.totalSuccessValue.setText(str(self.stats['total_processed']))
-            self.ui.totalFailedValue.setText(str(self.stats['total_failed']))
-            
-            # Total files
-            total_files = self.stats['total_processed'] + self.stats['total_failed']
-            self.ui.totalFilesValue.setText(str(total_files))
-            
-            # Time info
-            if self.stats['start_time'] and self.stats['end_time']:
-                start_time = self.stats['start_time'].strftime("%H:%M:%S")
-                end_time = self.stats['end_time'].strftime("%H:%M:%S")
-                
-                self.ui.startTimeValue.setText(start_time)
-                self.ui.endTimeValue.setText(end_time)
-                
-                # Duration
-                duration = timedelta(seconds=int(self.stats['total_duration']))
-                self.ui.durationValue.setText(str(duration))
-                
-            # Folder list
-            if 'processed_folders' in self.stats and self.stats['processed_folders']:
-                # Clear existing items in the layout
-                while self.ui.foldersLayout.count():
-                    item = self.ui.foldersLayout.takeAt(0)
-                    if item.widget():
-                        item.widget().deleteLater()
-                        
-                # Add each folder
-                for folder in self.stats['processed_folders']:
-                    folder_label = QLabel(folder)
-                    self.ui.foldersLayout.addWidget(folder_label)
-            else:
-                # Hide folder section if no folders processed
-                self.ui.foldersHeaderLabel.setVisible(False)
-                self.ui.foldersScrollArea.setVisible(False)
-        except Exception as e:
-            QMessageBox.warning(self, "Error", f"Failed to populate statistics: {str(e)}")
-
-# Create a progress handler class to receive signals from the background thread
-class ProgressHandler(QObject):
-    def __init__(self, app):
-        super().__init__()
-        self.app = app
-        
-    def handle_progress(self, message, percentage):
-        """Handle progress updates from the background thread"""
-        # This method is called in the main thread via signal/slot
-        self.app.update_progress(message, percentage)
-        
-    def handle_file_update(self, file_path, is_complete):
-        """Handle file updates from the background thread"""
-        # This method is called in the main thread via signal/slot
-        if is_complete:
-            self.app.restore_title_label()
-        else:
-            self.app.update_thumbnail(file_path)
 
 class SotongHDApp(QMainWindow):
     def __init__(self, base_dir, icon_path=None):
@@ -274,7 +60,7 @@ class SotongHDApp(QMainWindow):
         self.setWindowTitle(self.ui.windowTitle())
         
         # Center the window on the screen
-        self.center_on_screen()
+        center_window_on_screen(self)
         
         # Set the loaded UI as the central widget
         self.setCentralWidget(self.ui.centralWidget())
@@ -282,6 +68,23 @@ class SotongHDApp(QMainWindow):
         # Set up drag and drop support
         self.setAcceptDrops(True)
         
+        self.setup_ui_elements()
+        self.setup_buttons()
+        self.setup_thumbnail_label()
+        self.setup_progress_handler()
+        
+        # Initialize image processor
+        self.setup_image_processor(base_dir)
+        
+        # Apply the theme style to drop frame
+        if self.dropFrame:
+            setup_drag_drop_style(self.dropFrame)
+          
+        # Show the main window
+        self.show()
+    
+    def setup_ui_elements(self):
+        """Find and setup UI elements"""
         # Get UI elements
         self.dropFrame = self.findChild(QWidget, "dropFrame")
         self.iconLabel = self.findChild(QLabel, "iconLabel")
@@ -290,10 +93,23 @@ class SotongHDApp(QMainWindow):
         self.progress_bar = self.findChild(QProgressBar, "progressBar")
         self.log_display = self.findChild(QTextEdit, "logDisplay")
         
+        # Get spacers
+        self.topSpacer = self.findChild(QWidget, "verticalSpacer")
+        self.bottomSpacer = self.findChild(QWidget, "verticalSpacer_2")
+        
         # Connect the logger to the UI log display
         if self.log_display:
             logger.set_log_widget(self.log_display)
+            
+        # Ensure proper expansion behavior
+        self.configure_size_policies()
         
+        # Set high resolution icon if available
+        if self.iconLabel:
+            self.setup_high_res_icon()
+    
+    def setup_buttons(self):
+        """Setup buttons and their icons"""
         # Get the buttons
         self.openFolderButton = self.findChild(QPushButton, "openFolderButton")
         self.openFilesButton = self.findChild(QPushButton, "openFilesButton")
@@ -312,21 +128,21 @@ class SotongHDApp(QMainWindow):
             if self.whatsappButton:
                 self.whatsappButton.setIcon(whatsapp_icon)
                 self.whatsappButton.setIconSize(QSize(24, 24))
-                self.whatsappButton.clicked.connect(self.open_whatsapp_group)
+                self.whatsappButton.clicked.connect(self.on_whatsapp_button_click)
             
             # Open Folder button with folder icon
             folder_icon = qta.icon('fa5s.folder-open')
             if self.openFolderButton:
                 self.openFolderButton.setIcon(folder_icon)
                 self.openFolderButton.setIconSize(QSize(16, 16))
-                self.openFolderButton.clicked.connect(self.open_folder_dialog)
+                self.openFolderButton.clicked.connect(self.on_open_folder_click)
             
             # Open Files button with file icon
             files_icon = qta.icon('fa5s.file-image')
             if self.openFilesButton:
                 self.openFilesButton.setIcon(files_icon)
                 self.openFilesButton.setIconSize(QSize(16, 16))
-                self.openFilesButton.clicked.connect(self.open_files_dialog)
+                self.openFilesButton.clicked.connect(self.on_open_files_click)
             
             # Stop button with stop icon
             stop_icon = qta.icon('fa5s.stop')
@@ -337,19 +153,94 @@ class SotongHDApp(QMainWindow):
             # If qtawesome is not available, connect buttons without icons
             if self.whatsappButton:
                 self.whatsappButton.setText("WA")
-                self.whatsappButton.clicked.connect(self.open_whatsapp_group)
+                self.whatsappButton.clicked.connect(self.on_whatsapp_button_click)
             
             if self.openFolderButton:
-                self.openFolderButton.clicked.connect(self.open_folder_dialog)
+                self.openFolderButton.clicked.connect(self.on_open_folder_click)
                 
             if self.openFilesButton:
-                self.openFilesButton.clicked.connect(self.open_files_dialog)
+                self.openFilesButton.clicked.connect(self.on_open_files_click)
+    
+    def setup_thumbnail_label(self):
+        """Setup the thumbnail label for displaying images"""
+        # Create a scalable image label for thumbnails with proper size policy
+        self.thumbnail_label = ScalableImageLabel()
+        self.thumbnail_label.setAlignment(Qt.AlignCenter)
+        self.thumbnail_label.hide()  # Initially hidden
+        self.thumbnail_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         
-        # Get spacers
-        self.topSpacer = self.findChild(QWidget, "verticalSpacer")
-        self.bottomSpacer = self.findChild(QWidget, "verticalSpacer_2")
+        # Keep reference to original title label properties
+        if self.titleLabel:
+            self.original_title_font = self.titleLabel.font()
+            self.original_title_text = self.titleLabel.text()
+            self.original_title_alignment = self.titleLabel.alignment()
+            
+            # Get title label's parent layout
+            parent_layout = self.titleLabel.parentWidget().layout()
+            title_index = parent_layout.indexOf(self.titleLabel)
+            
+            # Insert thumbnail label at the same position
+            if title_index >= 0:
+                parent_layout.insertWidget(title_index, self.thumbnail_label)
+    
+    def setup_progress_handler(self):
+        """Setup progress handling"""
+        # Create progress handler to receive signals
+        self.progress_handler = ProgressHandler(self)
         
-        # Ensure proper expansion behavior by configuring all parts of the layout hierarchy
+        # Create UI manager for progress updates
+        self.progress_ui_manager = ProgressUIManager(self.progress_bar)
+        
+        # Current displayed image (for processing)
+        self.current_image = None
+    
+    def setup_image_processor(self, base_dir):
+        """Initialize the image processor"""
+        try:
+            chromedriver_path = os.path.join(base_dir, "driver", "chromedriver.exe")
+            
+            # Create a progress signal instance and connect it to our handler
+            self.progress_signal = ProgressSignal()
+            self.progress_signal.progress.connect(self.progress_handler.handle_progress)
+            
+            # Create a file update signal and connect it
+            self.file_update_signal = FileUpdateSignal()
+            self.file_update_signal.file_update.connect(self.progress_handler.handle_file_update)
+            
+            self.image_processor = ImageProcessor(
+                chromedriver_path=chromedriver_path,
+                progress_signal=self.progress_signal,
+                file_update_signal=self.file_update_signal
+            )
+            logger.sukses("Aplikasi SotongHD siap digunakan")
+            logger.info("Untuk memulai, seret dan lepas gambar atau folder ke area drop")
+        except Exception as e:
+            logger.kesalahan("Gagal menginisialisasi image processor", str(e))
+            QMessageBox.critical(self, "Error", f"Gagal menginisialisasi processor: {str(e)}")
+    
+    def setup_high_res_icon(self):
+        """Setup a high resolution icon in the UI"""
+        icon_path = self.windowIcon().name()
+        if icon_path and os.path.exists(icon_path) and self.iconLabel:
+            # Load the icon with explicitly requesting a larger size
+            icon = QIcon(icon_path)
+            # Get the largest available size (usually 256x256 for most .ico files)
+            available_sizes = icon.availableSizes()
+            if available_sizes:
+                # Sort sizes and get the largest one
+                largest_size = max(available_sizes, key=lambda size: size.width() * size.height())
+                pixmap = icon.pixmap(largest_size)
+            else:
+                # If no sizes available, request a large size explicitly
+                pixmap = icon.pixmap(256, 256)
+                
+            # Scale it down to fit our UI label while maintaining aspect ratio
+            self.iconLabel.setPixmap(pixmap.scaled(
+                96, 96, Qt.KeepAspectRatio, Qt.SmoothTransformation
+            ))
+    
+    def configure_size_policies(self):
+        """Configure size policies for UI elements"""
         # Main window should be able to resize
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         
@@ -384,137 +275,154 @@ class SotongHDApp(QMainWindow):
         
         if self.subtitleLabel:
             self.subtitleLabel.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Minimum)
+    
+    # Drag and drop handling
+    def dragEnterEvent(self, event: QDragEnterEvent):
+        """Handle when dragged items enter the window"""
+        # More robust check for valid drag data
+        mime_data = event.mimeData()
+        if mime_data and mime_data.hasUrls():
+            # Only accept if there's at least one valid local file
+            has_local_files = any(url.isLocalFile() for url in mime_data.urls())
+            if has_local_files:
+                event.acceptProposedAction()
+                setup_drag_drop_style(self.dropFrame, highlighted=True)
+                return
+        event.ignore()
         
-        # Create a scalable image label for thumbnails with proper size policy
-        self.thumbnail_label = ScalableImageLabel()
-        self.thumbnail_label.setAlignment(Qt.AlignCenter)
-        self.thumbnail_label.hide()  # Initially hidden
-        self.thumbnail_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+    def dragLeaveEvent(self, event):
+        """Handle when dragged items leave the window"""
+        setup_drag_drop_style(self.dropFrame)
         
-        # Keep reference to original title label properties
-        if self.titleLabel:
-            self.original_title_font = self.titleLabel.font()
-            self.original_title_text = self.titleLabel.text()
-            self.original_title_alignment = self.titleLabel.alignment()
+    def dragMoveEvent(self, event):
+        """Handle when dragged items move within the window"""
+        # We already checked the mime data in dragEnterEvent, so just accept
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()    
             
-            # Get title label's parent layout
-            parent_layout = self.titleLabel.parentWidget().layout()
-            title_index = parent_layout.indexOf(self.titleLabel)
+    def dropEvent(self, event: QDropEvent):
+        """Handle when items are dropped into the window"""
+        # Reset the dropFrame style
+        setup_drag_drop_style(self.dropFrame)
+        
+        # Process the dropped files
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
             
-            # Insert thumbnail label at the same position
-            if title_index >= 0:
-                parent_layout.insertWidget(title_index, self.thumbnail_label)
-        
-        # Set icon in the UI using high resolution
-        if icon_path and os.path.exists(icon_path) and self.iconLabel:
-            # Load the icon with explicitly requesting a larger size
-            icon = QIcon(icon_path)
-            # Get the largest available size (usually 256x256 for most .ico files)
-            available_sizes = icon.availableSizes()
-            if available_sizes:
-                # Sort sizes and get the largest one
-                largest_size = max(available_sizes, key=lambda size: size.width() * size.height())
-                pixmap = icon.pixmap(largest_size)
-            else:
-                # If no sizes available, request a large size explicitly
-                pixmap = icon.pixmap(256, 256)
-                
-            # Scale it down to fit our UI label while maintaining aspect ratio
-            self.iconLabel.setPixmap(pixmap.scaled(
-                96, 96, Qt.KeepAspectRatio, Qt.SmoothTransformation
-            ))
-        
-        # Create progress handler to receive signals
-        self.progress_handler = ProgressHandler(self)
-        
-        # Timer for deferred UI updates to prevent recursive repaints
-        self.update_timer = QTimer()
-        self.update_timer.setSingleShot(True)
-        self.update_timer.timeout.connect(self._update_progress_ui)
-        self.pending_progress_message = None
-        self.pending_progress_percentage = None
-        
-        # Current displayed image (for processing)
-        self.current_image = None
-        
-        # Initialize image processor
-        try:
-            chromedriver_path = os.path.join(base_dir, "driver", "chromedriver.exe")
+            file_paths = []
+            for url in event.mimeData().urls():
+                file_path = url.toLocalFile()
+                # Tambahkan semua file dan folder
+                file_paths.append(file_path)
             
-            # Create a progress signal instance and connect it to our handler
-            self.progress_signal = ProgressSignal()
-            self.progress_signal.progress.connect(self.progress_handler.handle_progress)
-            
-            # Create a file update signal and connect it
-            self.file_update_signal = FileUpdateSignal()
-            self.file_update_signal.file_update.connect(self.progress_handler.handle_file_update)
-            
-            self.image_processor = ImageProcessor(
-                chromedriver_path=chromedriver_path,
-                progress_signal=self.progress_signal,
-                file_update_signal=self.file_update_signal
-            )
-            logger.sukses("Aplikasi SotongHD siap digunakan")
-            logger.info("Untuk memulai, seret dan lepas gambar atau folder ke area drop")
-        except Exception as e:
-            logger.kesalahan("Gagal menginisialisasi image processor", str(e))
-            QMessageBox.critical(self, "Error", f"Gagal menginisialisasi processor: {str(e)}")
+            if file_paths:
+                paths_str = ", ".join([os.path.basename(p) for p in file_paths])
+                logger.info(f"File diterima: {len(file_paths)} item", paths_str)
+                self.process_files(file_paths)
+    
+    # Button handlers
+    def on_open_folder_click(self):
+        folder_path = open_folder_dialog(self)
+        if folder_path:
+            self.process_files([folder_path])
+    
+    def on_open_files_click(self):
+        file_paths = open_files_dialog(self)
+        if file_paths:
+            self.process_files(file_paths)
+    
+    def on_whatsapp_button_click(self):
+        open_whatsapp_group()
+    
+    # Processing methods
+    def process_files(self, file_paths):
+        """
+        Proses file atau folder yang diberikan
         
-        # Apply the theme style to drop frame
-        if self.dropFrame:
-            self.dropFrame.setStyleSheet("""
-                QFrame#dropFrame {
-                    border: 2px dashed rgba(88, 29, 239, 0.2);
-                    border-radius: 15px;
-                    background-color: rgba(88, 29, 239, 0.08);
-                }
-            """)
-          
-        # Show the main window
-        self.show()
+        Args:
+            file_paths: Daftar path file atau folder
+        """
+        # Reset UI to initial state
+        self.restore_title_label()
         
-    # Override resizeEvent to update layout when window is resized
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        # If we have an active thumbnail, update it to match the new window size
-        if hasattr(self, 'thumbnail_label') and self.thumbnail_label.isVisible() and hasattr(self.thumbnail_label, 'updatePixmap'):
-            self.thumbnail_label.updatePixmap()
-
+        # Log file yang akan diproses
+        paths_str = ", ".join([os.path.basename(p) for p in file_paths])
+        logger.info(f"Memproses {len(file_paths)} item", paths_str)
+        
+        # Enable stop button
+        if self.stopButton:
+            self.stopButton.setEnabled(True)
+        
+        # Disable other buttons during processing
+        if self.openFolderButton:
+            self.openFolderButton.setEnabled(False)
+        if self.openFilesButton:
+            self.openFilesButton.setEnabled(False)
+        
+        # Mulai pemrosesan gambar dalam thread terpisah
+        self.image_processor.start_processing(file_paths)
+        
+        # Cek secara periodik apakah thread masih berjalan
+        self.check_processor_thread()
+    
+    def check_processor_thread(self):
+        """Cek status thread pemrosesan dan tampilkan statistik jika selesai"""
+        if not self.image_processor.processing_thread or not self.image_processor.processing_thread.is_alive():
+            # Thread sudah selesai, tampilkan statistik
+            if self.image_processor.end_time:  # Pastikan telah diproses
+                stats = self.image_processor.get_statistics()
+                show_statistics(self, stats)
+            
+            # Reset UI buttons
+            self.reset_ui_buttons()
+        else:
+            # Thread masih berjalan, gunakan timer untuk cek lagi nanti
+            QApplication.processEvents()
+            QTimer.singleShot(100, self.check_processor_thread)
+    
+    def stop_processing(self):
+        """Hentikan pemrosesan dan reset UI"""
+        logger.info("Menghentikan pemrosesan berdasarkan permintaan pengguna")
+        
+        # Show a confirmation dialog
+        if confirm_stop_processing(self):
+            # Stop the image processor
+            if hasattr(self, 'image_processor'):
+                self.image_processor.stop_processing()
+            
+            # Reset UI state
+            self.restore_title_label()
+            self.reset_ui_buttons()
+            
+            # Update progress bar to show cancellation
+            if self.progress_bar:
+                self.progress_bar.setValue(0)
+                self.progress_bar.setFormat("Proses dibatalkan oleh pengguna")
+            
+            logger.peringatan("Proses dibatalkan oleh pengguna")
+    
+    def reset_ui_buttons(self):
+        """Reset status tombol UI setelah pemrosesan selesai"""
+        # Disable stop button
+        if self.stopButton:
+            self.stopButton.setEnabled(False)
+        
+        # Enable folder and files buttons
+        if self.openFolderButton:
+            self.openFolderButton.setEnabled(True)
+        if self.openFilesButton:
+            self.openFilesButton.setEnabled(True)
+    
+    # UI update methods
     def update_progress(self, message, percentage=None):
         """
-        Schedule progress bar update with a message and percentage.
-        Uses a timer to prevent recursive repaints.
+        Forward progress updates to the UI manager
         
         Args:
             message: Message to display
             percentage: Completion percentage (0-100)
         """
-        if not self.progress_bar:
-            return
-            
-        # Store the updated values for use when the timer fires
-        self.pending_progress_message = message
-        self.pending_progress_percentage = percentage
-        
-        # Restart the timer to update UI shortly
-        # If timer is already active, this will defer the update 
-        # until all pending events are processed
-        if not self.update_timer.isActive():
-            self.update_timer.start(50)  # 50ms delay
-
-    def _update_progress_ui(self):
-        """
-        Actually update the UI with the pending progress information.
-        This is called by the timer to prevent recursive repaints.
-        """
-        if not self.progress_bar:
-            return
-            
-        if self.pending_progress_percentage is not None:
-            self.progress_bar.setValue(self.pending_progress_percentage)
-            self.progress_bar.setFormat(f"{self.pending_progress_message} - %p%")
-        else:
-            self.progress_bar.setFormat(self.pending_progress_message)
+        self.progress_ui_manager.update_progress(message, percentage)
 
     def update_thumbnail(self, file_path):
         """
@@ -630,217 +538,14 @@ class SotongHDApp(QMainWindow):
         except Exception as e:
             logger.kesalahan("Error restoring title label", str(e))
             print(f"Error restoring title label: {e}")
-
-    def dragEnterEvent(self, event: QDragEnterEvent):
-        """Handle when dragged items enter the window"""
-        # More robust check for valid drag data
-        mime_data = event.mimeData()
-        if mime_data and mime_data.hasUrls():
-            # Only accept if there's at least one valid local file
-            has_local_files = any(url.isLocalFile() for url in mime_data.urls())
-            if has_local_files:
-                event.acceptProposedAction()
-                if self.dropFrame:
-                    self.dropFrame.setStyleSheet("""
-                        QFrame#dropFrame {
-                            border: 2px dashed rgba(88, 29, 239, 0.5);
-                            border-radius: 15px;
-                            background-color: rgba(88, 29, 239, 0.15);
-                        }
-                    """)
-                return
-        event.ignore()
-        
-    def dragLeaveEvent(self, event):
-        """Handle when dragged items leave the window"""
-        if self.dropFrame:
-            self.dropFrame.setStyleSheet("""
-                QFrame#dropFrame {
-                    border: 2px dashed rgba(88, 29, 239, 0.2);
-                    border-radius: 15px;
-                    background-color: rgba(88, 29, 239, 0.08);
-                }
-            """)
-        
-    def dragMoveEvent(self, event):
-        """Handle when dragged items move within the window"""
-        # We already checked the mime data in dragEnterEvent, so just accept
-        if event.mimeData().hasUrls():
-            event.acceptProposedAction()    
-            
-    def dropEvent(self, event: QDropEvent):
-        """Handle when items are dropped into the window"""
-        # Reset the dropFrame style
-        if self.dropFrame:
-            self.dropFrame.setStyleSheet("""
-                QFrame#dropFrame {
-                    border: 2px dashed rgba(88, 29, 239, 0.2);
-                    border-radius: 15px;
-                    background-color: rgba(88, 29, 239, 0.08);
-                }
-            """)
-        
-        # Process the dropped files
-        if event.mimeData().hasUrls():
-            event.acceptProposedAction()
-            
-            file_paths = []
-            for url in event.mimeData().urls():
-                file_path = url.toLocalFile()
-                # Tambahkan semua file dan folder
-                file_paths.append(file_path)
-            
-            if file_paths:
-                paths_str = ", ".join([os.path.basename(p) for p in file_paths])
-                logger.info(f"File diterima: {len(file_paths)} item", paths_str)
-                self.process_files(file_paths)
     
-    def is_image_file(self, file_path):
-        """Check if the file is a valid image that can be loaded"""
-        if not os.path.isfile(file_path):
-            return False
-            
-        # Check if it's a supported image format
-        reader = QImageReader(file_path)
-        return reader.canRead()
+    # Override window/widget events
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        # If we have an active thumbnail, update it to match the new window size
+        if hasattr(self, 'thumbnail_label') and self.thumbnail_label.isVisible() and hasattr(self.thumbnail_label, 'updatePixmap'):
+            self.thumbnail_label.updatePixmap()
     
-    def process_files(self, file_paths):
-        """
-        Proses file atau folder yang diberikan
-        
-        Args:
-            file_paths: Daftar path file atau folder
-        """
-        # Reset UI to initial state
-        self.restore_title_label()
-        
-        # Log file yang akan diproses
-        paths_str = ", ".join([os.path.basename(p) for p in file_paths])
-        logger.info(f"Memproses {len(file_paths)} item", paths_str)
-        
-        # Enable stop button
-        if self.stopButton:
-            self.stopButton.setEnabled(True)
-        
-        # Disable other buttons during processing
-        if self.openFolderButton:
-            self.openFolderButton.setEnabled(False)
-        if self.openFilesButton:
-            self.openFilesButton.setEnabled(False)
-        
-        # Mulai pemrosesan gambar dalam thread terpisah
-        self.image_processor.start_processing(file_paths)
-        
-        # Cek secara periodik apakah thread masih berjalan
-        self.check_processor_thread()
-    
-    def check_processor_thread(self):
-        """Cek status thread pemrosesan dan tampilkan statistik jika selesai"""
-        if not self.image_processor.processing_thread or not self.image_processor.processing_thread.is_alive():
-            # Thread sudah selesai, tampilkan statistik
-            if self.image_processor.end_time:  # Pastikan telah diproses
-                stats = self.image_processor.get_statistics()
-                self.show_statistics(stats)
-            
-            # Reset UI buttons
-            self.reset_ui_buttons()
-        else:
-            # Thread masih berjalan, gunakan timer untuk cek lagi nanti
-            QApplication.processEvents()
-            from PySide6.QtCore import QTimer
-            QTimer.singleShot(100, self.check_processor_thread)
-    
-    def show_statistics(self, stats):
-        """Tampilkan dialog statistik"""
-        logger.info("Statistik proses", f"Berhasil: {stats['total_processed']}, Gagal: {stats['total_failed']}")
-        dialog = StatsDialog(self, stats)
-        dialog.exec()
-    
-    def reset_ui_buttons(self):
-        """Reset status tombol UI setelah pemrosesan selesai"""
-        # Disable stop button
-        if self.stopButton:
-            self.stopButton.setEnabled(False)
-        
-        # Enable folder and files buttons
-        if self.openFolderButton:
-            self.openFolderButton.setEnabled(True)
-        if self.openFilesButton:
-            self.openFilesButton.setEnabled(True)
-    
-    def stop_processing(self):
-        """Hentikan pemrosesan dan reset UI"""
-        logger.info("Menghentikan pemrosesan berdasarkan permintaan pengguna")
-        
-        # Show a confirmation dialog
-        reply = QMessageBox.question(
-            self, 
-            "Konfirmasi Pembatalan", 
-            "Apakah Anda yakin ingin menghentikan proses?",
-            QMessageBox.Yes | QMessageBox.No, 
-            QMessageBox.No
-        )
-        
-        if reply == QMessageBox.Yes:
-            # Stop the image processor
-            if hasattr(self, 'image_processor'):
-                self.image_processor.stop_processing()
-            
-            # Reset UI state
-            self.restore_title_label()
-            self.reset_ui_buttons()
-            
-            # Update progress bar to show cancellation
-            if self.progress_bar:
-                self.progress_bar.setValue(0)
-                self.progress_bar.setFormat("Proses dibatalkan oleh pengguna")
-            
-            logger.peringatan("Proses dibatalkan oleh pengguna")
-    
-    def open_folder_dialog(self):
-        """Open a file dialog to select folders to process"""
-        folder_path = QFileDialog.getExistingDirectory(
-            self,
-            "Select Folder with Images",
-            os.path.expanduser("~"),
-            QFileDialog.ShowDirsOnly
-        )
-        
-        if folder_path:
-            logger.info("Folder dipilih", folder_path)
-            # Process the selected folder just like drag and drop
-            self.process_files([folder_path])
-    
-    def open_files_dialog(self):
-        """Open a file dialog to select multiple image files to process"""
-        file_paths, _ = QFileDialog.getOpenFileNames(
-            self,
-            "Select Images",
-            os.path.expanduser("~"),
-            "Image Files (*.jpg *.jpeg *.png *.bmp *.gif);;All Files (*)"
-        )
-        
-        if file_paths:
-            logger.info(f"File dipilih: {len(file_paths)} item")
-            # Process the selected files just like drag and drop
-            self.process_files(file_paths)
-    
-    def open_whatsapp_group(self):
-        """Opens the WhatsApp group link in the default browser"""
-        whatsapp_group_url = "https://chat.whatsapp.com/CMQvDxpCfP647kBBA6dRn3"
-        from PySide6.QtGui import QDesktopServices
-        QDesktopServices.openUrl(QUrl(whatsapp_group_url))
-    
-    def center_on_screen(self):
-        """Center the window on the screen."""
-        screen_geometry = QApplication.primaryScreen().geometry()
-        window_geometry = self.geometry()
-        
-        x = (screen_geometry.width() - window_geometry.width()) // 2
-        y = (screen_geometry.height() - window_geometry.height()) // 2
-        
-        self.move(x, y)
-        
     def closeEvent(self, event):
         """Handle when the window is closed"""
         # Stop any ongoing processing
