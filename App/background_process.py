@@ -291,7 +291,7 @@ class ImageProcessor:
                 )
                 
                 driver.get("https://picsart.com/id/ai-image-enhancer/")
-                time.sleep(2)  # Tunggu halaman dan elemen render
+                time.sleep(10)  # Tunggu halaman dan elemen render
 
                 # ===== TAHAP 2: Upload Gambar (5-15%) =====
                 # Only log key events, not routine steps
@@ -371,7 +371,7 @@ class ImageProcessor:
                 )
                 
                 # Implementasi retry logic dengan timeout keseluruhan
-                max_wait_time = 300  # 5 menit total
+                max_wait_time = 120  # 2 menit total
                 start_time = time.time()
                 
                 found_image = False
