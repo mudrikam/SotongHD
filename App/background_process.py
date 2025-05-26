@@ -50,7 +50,6 @@ class ImageProcessor:
         self.polling_interval = 1  # cek setiap 1 detik (sesuai permintaan)
         self.config_manager = config_manager
         
-        logger.info("SotongHD Image Processor diinisialisasi")
         
     def update_progress(self, message: str, percentage: int = None, current: int = None, total: int = None):
         """

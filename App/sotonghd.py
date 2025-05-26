@@ -13,7 +13,7 @@ from pathlib import Path
 from .background_process import ImageProcessor, ProgressSignal, FileUpdateSignal
 from .logger import logger
 from .ui_helpers import (ScalableImageLabel, center_window_on_screen, setup_drag_drop_style, 
-                       setup_format_toggle)
+                       setup_format_toggle, set_application_icon)
 from .progress_handler import ProgressHandler, ProgressUIManager
 from .file_processor import (is_image_file, open_folder_dialog, open_files_dialog, 
                            open_whatsapp_group, show_statistics, confirm_stop_processing)
@@ -234,24 +234,21 @@ class SotongHDApp(QMainWindow):
     
     def setup_high_res_icon(self):
         """Setup a high resolution icon in the UI"""
-        icon_path = self.windowIcon().name()
-        if icon_path and os.path.exists(icon_path) and self.iconLabel:
-            # Load the icon with explicitly requesting a larger size
-            icon = QIcon(icon_path)
-            # Get the largest available size (usually 256x256 for most .ico files)
-            available_sizes = icon.availableSizes()
-            if available_sizes:
-                # Sort sizes and get the largest one
-                largest_size = max(available_sizes, key=lambda size: size.width() * size.height())
-                pixmap = icon.pixmap(largest_size)
-            else:
-                # If no sizes available, request a large size explicitly
-                pixmap = icon.pixmap(256, 256)
-                
-            # Scale it down to fit our UI label while maintaining aspect ratio
-            self.iconLabel.setPixmap(pixmap.scaled(
-                96, 96, Qt.KeepAspectRatio, Qt.SmoothTransformation
-            ))
+        # Try different possible icon paths
+        possible_paths = [
+            self.windowIcon().name(),
+            os.path.join(self.base_dir, "sotonghd.ico"),
+            os.path.join(self.base_dir, "App", "sotonghd.ico"),
+            os.path.join(self.base_dir, "App", "sotong_bg.png")
+        ]
+        
+        # Try each path until one works
+        for path in possible_paths:
+            if path and os.path.exists(path):
+                if set_application_icon(self, path):
+                    break
+        else:
+            logger.peringatan("Tidak dapat menemukan ikon aplikasi")
     
     def configure_size_policies(self):
         """Configure size policies for UI elements"""

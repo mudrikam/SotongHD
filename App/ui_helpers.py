@@ -1,6 +1,6 @@
 import os
 from PySide6.QtWidgets import QLabel, QSizePolicy, QCheckBox
-from PySide6.QtGui import QPixmap, QPainter, QPainterPath
+from PySide6.QtGui import QPixmap, QPainter, QPainterPath, QIcon
 from PySide6.QtCore import Qt, QSize, QRectF
 from .logger import logger
 
@@ -180,3 +180,60 @@ def on_format_toggle_changed(state, label_png, label_jpg, config_manager):
     
     # Log the format change
     logger.info(f"Output format changed to: {'JPG' if is_jpg else 'PNG'}")
+
+def set_application_icon(app, icon_path):
+    """Set the application icon for both the window and the center label"""
+    if icon_path and os.path.exists(icon_path):
+        # Find the iconLabel in the UI
+        icon_label = app.findChild(QLabel, "iconLabel")
+        
+        if icon_label:
+            try:
+                # Check if it's an .ico file which needs special handling
+                if icon_path.lower().endswith('.ico'):
+                    # Load as icon and extract the largest size
+                    icon = QIcon(icon_path)
+                    available_sizes = icon.availableSizes()
+                    
+                    if available_sizes:
+                        # Find the largest available size
+                        largest_size = max(available_sizes, key=lambda s: s.width() * s.height())
+                        logger.info(f"Selected icon size: {largest_size.width()}x{largest_size.height()}")
+                        
+                        # Request the largest size available in the icon
+                        pixmap = icon.pixmap(largest_size)
+                    else:
+                        # Explicitly request a large size if sizes not available
+                        pixmap = icon.pixmap(QSize(256, 256))
+                else:
+                    # For non-ico files, load directly as pixmap
+                    pixmap = QPixmap(icon_path)
+                
+                if not pixmap.isNull():
+                    logger.info(f"Loaded icon with size: {pixmap.width()}x{pixmap.height()}")
+                    
+                    # Use a larger size for display (128x128)
+                    display_size = 128
+                    
+                    # Scale pixmap while preserving aspect ratio
+                    scaled_pixmap = pixmap.scaled(
+                        display_size, display_size,
+                        Qt.KeepAspectRatio,
+                        Qt.SmoothTransformation
+                    )
+                    
+                    # Set the pixmap to the label
+                    icon_label.setPixmap(scaled_pixmap)
+                    icon_label.setAlignment(Qt.AlignCenter)
+                    
+                    # Ensure minimum size is set to maintain proper display
+                    icon_label.setMinimumSize(display_size, display_size)
+                    
+                    logger.info(f"Set application icon: {pixmap.width()}x{pixmap.height()} → {scaled_pixmap.width()}x{scaled_pixmap.height()}")
+                    return True
+                else:
+                    logger.peringatan(f"Gagal memuat icon - pixmap null: {icon_path}")
+            except Exception as e:
+                logger.kesalahan(f"Error saat memuat ikon aplikasi", str(e))
+    
+    return False
