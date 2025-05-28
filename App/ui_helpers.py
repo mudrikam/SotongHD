@@ -198,7 +198,6 @@ def set_application_icon(app, icon_path):
                     if available_sizes:
                         # Find the largest available size
                         largest_size = max(available_sizes, key=lambda s: s.width() * s.height())
-                        logger.info(f"Selected icon size: {largest_size.width()}x{largest_size.height()}")
                         
                         # Request the largest size available in the icon
                         pixmap = icon.pixmap(largest_size)
@@ -210,7 +209,6 @@ def set_application_icon(app, icon_path):
                     pixmap = QPixmap(icon_path)
                 
                 if not pixmap.isNull():
-                    logger.info(f"Loaded icon with size: {pixmap.width()}x{pixmap.height()}")
                     
                     # Use a larger size for display (128x128)
                     display_size = 128
@@ -229,7 +227,7 @@ def set_application_icon(app, icon_path):
                     # Ensure minimum size is set to maintain proper display
                     icon_label.setMinimumSize(display_size, display_size)
                     
-                    logger.info(f"Set application icon: {pixmap.width()}x{pixmap.height()} → {scaled_pixmap.width()}x{scaled_pixmap.height()}")
+                    # logger.info(f"Set application icon: {pixmap.width()}x{pixmap.height()} → {scaled_pixmap.width()}x{scaled_pixmap.height()}")
                     return True
                 else:
                     logger.peringatan(f"Gagal memuat icon - pixmap null: {icon_path}")
