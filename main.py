@@ -9,7 +9,7 @@ def download_chromedriver():
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
     
     # Define the download URL and paths
-    CHROMEDRIVER_URL = "https://storage.googleapis.com/chrome-for-testing-public/136.0.7103.94/win64/chromedriver-win64.zip"
+    CHROMEDRIVER_URL = "https://storage.googleapis.com/chrome-for-testing-public/138.0.7204.92/win64/chromedriver-win64.zip"
     DOWNLOAD_PATH = os.path.join(BASE_DIR, "chromedriver-win64.zip")
     DRIVER_DIR = os.path.join(BASE_DIR, "driver")
     EXTRACTION_DIR = os.path.join(BASE_DIR, "temp_extract")
