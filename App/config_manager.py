@@ -14,6 +14,10 @@ class ConfigManager:
         """Load configuration from file"""
         default_config = {
             "output_format": "png",  # Default format: png, alternative: jpg
+            # Persist UI preferences
+            "batch_size": 1,
+            "headless": True,
+            "incognito": True,
         }
         
         if os.path.exists(self.config_file):
@@ -43,6 +47,47 @@ class ConfigManager:
                 json.dump(config, f, indent=2)
         except Exception as e:
             print(f"Error saving config: {e}")
+
+    # New helpers for batch/headless/incognito
+    def get_batch_size(self) -> int:
+        try:
+            return int(self.config.get("batch_size", 1))
+        except Exception:
+            return 1
+
+    def set_batch_size(self, size: int):
+        try:
+            self.config["batch_size"] = int(size)
+            self.save_config()
+        except Exception:
+            pass
+
+    def get_headless(self):
+        val = self.config.get("headless", True)
+        # Return explicit boolean or None if not set
+        if val is None:
+            return None
+        return bool(val)
+
+    def set_headless(self, value):
+        if value is None:
+            self.config["headless"] = None
+        else:
+            self.config["headless"] = bool(value)
+        self.save_config()
+
+    def get_incognito(self):
+        val = self.config.get("incognito", True)
+        if val is None:
+            return None
+        return bool(val)
+
+    def set_incognito(self, value):
+        if value is None:
+            self.config["incognito"] = None
+        else:
+            self.config["incognito"] = bool(value)
+        self.save_config()
     
     def get_output_format(self):
         """Get the current output format (png or jpg)"""

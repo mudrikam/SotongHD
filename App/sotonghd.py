@@ -308,6 +308,21 @@ class SotongHDApp(QMainWindow):
         
         # Initialize config manager
         self.config_manager = ConfigManager(self.base_dir)
+        # Load persisted values into controls if available
+        try:
+            batch_val = self.config_manager.get_batch_size()
+            if hasattr(self, 'batchSpinner') and batch_val:
+                self.batchSpinner.setValue(int(batch_val))
+
+            headless_val = self.config_manager.get_headless()
+            if hasattr(self, 'headlessCheck') and headless_val is not None:
+                self.headlessCheck.setChecked(bool(headless_val))
+
+            incognito_val = self.config_manager.get_incognito()
+            if hasattr(self, 'incognitoCheck') and incognito_val is not None:
+                self.incognitoCheck.setChecked(bool(incognito_val))
+        except Exception:
+            pass
         
         # Set up format toggle using helper function
         self.formatToggle, self.formatLabel, self.formatLabel2 = setup_format_toggle(self, self.config_manager)
@@ -364,6 +379,19 @@ class SotongHDApp(QMainWindow):
                 
             if self.openFilesButton:
                 self.openFilesButton.clicked.connect(self.on_open_files_click)
+
+        # Connect preference controls to save to config
+        try:
+            if hasattr(self, 'batchSpinner') and self.batchSpinner:
+                self.batchSpinner.valueChanged.connect(lambda v: self.config_manager.set_batch_size(int(v)))
+
+            if hasattr(self, 'headlessCheck') and self.headlessCheck:
+                self.headlessCheck.stateChanged.connect(lambda s: self.config_manager.set_headless(bool(self.headlessCheck.isChecked())))
+
+            if hasattr(self, 'incognitoCheck') and self.incognitoCheck:
+                self.incognitoCheck.stateChanged.connect(lambda s: self.config_manager.set_incognito(bool(self.incognitoCheck.isChecked())))
+        except Exception:
+            pass
     
     def setup_thumbnail_label(self):
         """Setup the thumbnail label for displaying images"""
@@ -573,22 +601,29 @@ class SotongHDApp(QMainWindow):
         # Mulai pemrosesan gambar dalam thread terpisah
         # Apply current UI options to the processor (no fallback here; explicit values only)
         if hasattr(self, 'image_processor'):
-            if hasattr(self, 'headlessCheck'):
-                self.image_processor.headless = bool(self.headlessCheck.isChecked())
-            else:
-                self.image_processor.headless = None
+            # Persist UI preferences to config and apply them to the processor
+            try:
+                if hasattr(self, 'batchSpinner'):
+                    val = int(self.batchSpinner.value())
+                    self.config_manager.set_batch_size(val)
+                    self.image_processor.batch_size = val
 
-            if hasattr(self, 'incognitoCheck'):
-                self.image_processor.incognito = bool(self.incognitoCheck.isChecked())
-            else:
-                self.image_processor.incognito = None
+                if hasattr(self, 'headlessCheck'):
+                    h = bool(self.headlessCheck.isChecked())
+                    self.config_manager.set_headless(h)
+                    self.image_processor.headless = h
+                else:
+                    self.image_processor.headless = None
 
-            # Apply batch size from UI spinner right before starting
-            if hasattr(self, 'batchSpinner'):
-                try:
-                    self.image_processor.batch_size = int(self.batchSpinner.value())
-                except Exception:
-                    self.image_processor.batch_size = 1
+                if hasattr(self, 'incognitoCheck'):
+                    inc = bool(self.incognitoCheck.isChecked())
+                    self.config_manager.set_incognito(inc)
+                    self.image_processor.incognito = inc
+                else:
+                    self.image_processor.incognito = None
+            except Exception:
+                # Best-effort persistence; failures shouldn't block processing
+                pass
 
         self.image_processor.start_processing(file_paths)
         
