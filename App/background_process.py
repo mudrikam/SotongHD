@@ -25,7 +25,7 @@ class FileUpdateSignal(QObject):
 class ImageProcessor:
     def __init__(self, chromedriver_path: str = None, progress_callback: Callable = None, 
                  progress_signal: ProgressSignal = None, file_update_signal: FileUpdateSignal = None,
-                 config_manager=None):
+                 config_manager=None, headless: bool | None = None, incognito: bool | None = None):
         """
         Inisialisasi prosesor gambar
         
@@ -49,6 +49,9 @@ class ImageProcessor:
         self.end_time = None
         self.polling_interval = 1  # cek setiap 1 detik (sesuai permintaan)
         self.config_manager = config_manager
+        # Browser options provided by UI; None means 'unspecified' (don't assume)
+        self.headless = headless
+        self.incognito = incognito
         
         
     def update_progress(self, message: str, percentage: int = None, current: int = None, total: int = None):
@@ -268,17 +271,104 @@ class ImageProcessor:
                 total=total_files
             )
             
-            # Konfigurasi browser untuk headless mode
+            # Konfigurasi browser berdasarkan opsi UI (headless, incognito)
             chrome_options = Options()
-            chrome_options.add_argument("--headless=new")
+            # Headless: support both boolean and new headless flag
+            # Only enable headless if explicitly requested (True). If None, don't modify.
+            if self.headless is True:
+                try:
+                    chrome_options.add_argument("--headless=new")
+                except Exception:
+                    chrome_options.add_argument("--headless")
+
             chrome_options.add_argument("--disable-gpu")
             chrome_options.add_argument("--window-size=1366,768")
             chrome_options.add_argument("--log-level=3")
-            chrome_options.add_argument("--incognito")  # Add incognito mode
+            if self.incognito:
+                chrome_options.add_argument("--incognito")
             chrome_options.add_experimental_option('excludeSwitches', ['enable-logging'])
 
-            # Inisialisasi Chrome dengan lokasi driver
-            driver = webdriver.Chrome(service=Service(self.chromedriver_path), options=chrome_options)
+            # Diagnostic: log the requested options so we can debug headless/incognito behavior
+            # Defensive: if the user explicitly set headless=False, remove any headless args
+            try:
+                args_list = None
+                if hasattr(chrome_options, 'arguments'):
+                    args_list = chrome_options.arguments
+                elif hasattr(chrome_options, '_arguments'):
+                    args_list = chrome_options._arguments
+
+                if args_list is not None:
+                    filtered = []
+                    for a in args_list:
+                        if self.headless is False and (a.startswith('--headless') or a == '--headless'):
+                            continue
+                        if self.incognito is False and a == '--incognito':
+                            continue
+                        filtered.append(a)
+
+                    # try to set back the filtered list to the options object
+                    try:
+                        if hasattr(chrome_options, 'arguments'):
+                            chrome_options.arguments = filtered
+                        elif hasattr(chrome_options, '_arguments'):
+                            chrome_options._arguments = filtered
+                    except Exception:
+                        # not critical; continue
+                        pass
+
+            except Exception:
+                # ignore filter errors
+                pass
+
+            # Build capabilities and ensure the final args list matches our filtered list
+            try:
+                caps = chrome_options.to_capabilities() or {}
+            except Exception:
+                caps = {}
+
+            # Extract current args from capabilities and filter them explicitly
+            current_args = []
+            try:
+                current_args = caps.get('goog:chromeOptions', {}).get('args', []) or []
+            except Exception:
+                current_args = []
+
+            filtered_args = []
+            for a in current_args:
+                if self.headless is False and (a.startswith('--headless') or a == '--headless'):
+                    continue
+                if self.incognito is False and a == '--incognito':
+                    continue
+                filtered_args.append(a)
+
+            # Ensure common args are present (disable-gpu etc.) if missing
+            base_required = ['--disable-gpu', '--window-size=1366,768', '--log-level=3']
+            for req in base_required:
+                if req not in filtered_args:
+                    filtered_args.append(req)
+
+            # If the user explicitly requested incognito=True and it's not present, add it
+            if self.incognito is True and '--incognito' not in filtered_args:
+                filtered_args.append('--incognito')
+
+            # If the user explicitly requested headless=True and it's not present, add it
+            if self.headless is True and not any(x.startswith('--headless') for x in filtered_args):
+                try:
+                    filtered_args.insert(0, '--headless=new')
+                except Exception:
+                    filtered_args.insert(0, '--headless')
+
+            # Put filtered args back into capabilities
+            caps.setdefault('goog:chromeOptions', {})['args'] = filtered_args
+
+            logger.info(f"Launching Chrome - headless={self.headless}, incognito={self.incognito}", str(caps.get('goog:chromeOptions', caps)))
+
+            # Inisialisasi Chrome dengan lokasi driver using explicit capabilities to enforce args
+            try:
+                driver = webdriver.Chrome(service=Service(self.chromedriver_path), desired_capabilities=caps)
+            except TypeError:
+                # Fallback for selenium versions that don't accept desired_capabilities here
+                driver = webdriver.Chrome(service=Service(self.chromedriver_path), options=chrome_options)
             
             try:
                 # Buka halaman Picsart AI Image Enhancer

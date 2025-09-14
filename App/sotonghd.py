@@ -3,7 +3,7 @@ import sys
 from datetime import datetime
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QMessageBox, QProgressBar, 
                               QVBoxLayout, QLabel, QPushButton, QFileDialog,
-                              QHBoxLayout, QGridLayout, QScrollArea, QSizePolicy, QTextEdit, QCheckBox)
+                              QHBoxLayout, QGridLayout, QScrollArea, QSizePolicy, QTextEdit, QCheckBox, QSpinBox)
 # Fix the import for QUiLoader - it should be from QtUiTools, not QtWidgets
 from PySide6.QtGui import QIcon, QPixmap, QDragEnterEvent, QDropEvent
 from PySide6.QtCore import Qt, QTimer, QSize, QUrl, Signal, QObject
@@ -134,6 +134,45 @@ class SotongHDApp(QMainWindow):
         self.progress_bar.setStyleSheet("QProgressBar {\n  border: none;\n  border-radius: 10px;\n  background-color: rgba(161, 161, 161, 0.08);\n  text-align: center;\n  font-weight: bold;\n  margin: 0px;\n  padding: 0px;\n  height: 30px;\n}\nQProgressBar::chunk {\n  background-color: #5720e3;\n  border-radius: 10px;\n}")
         main_vlayout.addWidget(self.progress_bar)
 
+        # Controls row: batch size and browser options (headless, incognito)
+        controls_layout = QHBoxLayout()
+        controls_layout.setObjectName("controlsLayout")
+
+        # Batch size label and spinner (1-10)
+        self.batchLabel = QLabel("Batch:", central_widget)
+        self.batchLabel.setObjectName("batchLabel")
+        self.batchLabel.setStyleSheet("color: rgb(85, 0, 255);")
+        controls_layout.addWidget(self.batchLabel)
+
+        from PySide6.QtWidgets import QSpinBox
+        self.batchSpinner = QSpinBox(central_widget)
+        self.batchSpinner.setObjectName("batchSpinner")
+        self.batchSpinner.setMinimum(1)
+        self.batchSpinner.setMaximum(10)
+        self.batchSpinner.setValue(1)
+        self.batchSpinner.setToolTip("Ukuran batch saat memproses file (1-10)")
+        self.batchSpinner.setFixedWidth(80)
+        controls_layout.addWidget(self.batchSpinner)
+
+        # Spacer between batch controls and toggles
+        controls_layout.addStretch()
+
+        # Headless checkbox
+        self.headlessCheck = QCheckBox("Headless", central_widget)
+        self.headlessCheck.setObjectName("headlessCheck")
+        self.headlessCheck.setChecked(True)
+        self.headlessCheck.setToolTip("Jalankan browser dalam mode headless (True/False)")
+        controls_layout.addWidget(self.headlessCheck)
+
+        # Incognito checkbox
+        self.incognitoCheck = QCheckBox("Incognito", central_widget)
+        self.incognitoCheck.setObjectName("incognitoCheck")
+        self.incognitoCheck.setChecked(True)
+        self.incognitoCheck.setToolTip("Jalankan browser dalam mode incognito (True/False)")
+        controls_layout.addWidget(self.incognitoCheck)
+
+        main_vlayout.addLayout(controls_layout)
+
         # Log display
         self.log_display = QTextEdit(central_widget)
         self.log_display.setObjectName("logDisplay")
@@ -259,6 +298,13 @@ class SotongHDApp(QMainWindow):
         self.formatToggle = self.findChild(QCheckBox, "formatToggle")
         self.formatLabel = self.findChild(QLabel, "formatLabel")
         self.formatLabel2 = self.findChild(QLabel, "formatLabel2")
+
+        # New controls: batch spinner and browser option checkboxes
+        # These were created in __init__; fall back to findChild for robustness
+        self.batchSpinner = getattr(self, 'batchSpinner', self.findChild(QSpinBox, "batchSpinner"))
+        self.batchLabel = getattr(self, 'batchLabel', self.findChild(QLabel, "batchLabel"))
+        self.headlessCheck = getattr(self, 'headlessCheck', self.findChild(QCheckBox, "headlessCheck"))
+        self.incognitoCheck = getattr(self, 'incognitoCheck', self.findChild(QCheckBox, "incognitoCheck"))
         
         # Initialize config manager
         self.config_manager = ConfigManager(self.base_dir)
@@ -369,7 +415,9 @@ class SotongHDApp(QMainWindow):
                 chromedriver_path=chromedriver_path,
                 progress_signal=self.progress_signal,
                 file_update_signal=self.file_update_signal,
-                config_manager=self.config_manager
+                config_manager=self.config_manager,
+                headless=(bool(self.headlessCheck.isChecked()) if hasattr(self, 'headlessCheck') else None),
+                incognito=(bool(self.incognitoCheck.isChecked()) if hasattr(self, 'incognitoCheck') else None)
             )
             logger.sukses("Aplikasi SotongHD siap digunakan")
             logger.info("Untuk memulai, seret dan lepas gambar atau folder ke area drop")
@@ -516,6 +564,18 @@ class SotongHDApp(QMainWindow):
             self.openFilesButton.setEnabled(False)
         
         # Mulai pemrosesan gambar dalam thread terpisah
+        # Apply current UI options to the processor (no fallback here; explicit values only)
+        if hasattr(self, 'image_processor'):
+            if hasattr(self, 'headlessCheck'):
+                self.image_processor.headless = bool(self.headlessCheck.isChecked())
+            else:
+                self.image_processor.headless = None
+
+            if hasattr(self, 'incognitoCheck'):
+                self.image_processor.incognito = bool(self.incognitoCheck.isChecked())
+            else:
+                self.image_processor.incognito = None
+
         self.image_processor.start_processing(file_paths)
         
         # Cek secara periodik apakah thread masih berjalan
