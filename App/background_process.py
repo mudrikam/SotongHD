@@ -380,7 +380,47 @@ class ImageProcessor:
                 )
                 
                 driver.get("https://picsart.com/id/ai-image-enhancer/")
-                time.sleep(10)  # Tunggu halaman dan elemen render
+
+                # Tunggu halaman dan elemen render dengan polling setiap self.polling_interval
+                # Cari elemen upload secara terus-menerus tanpa timeout (menghormati self.should_stop)
+                upload_ready = False
+                upload_selectors = [
+                    "div[id='uploadArea'] input[type='file']",
+                    "div[id='uploadArea'] input",
+                    "div[class*='upload-area-root'] input[type='file']",
+                    "div[class*='upload-area'] input[type='file']",
+                    "div[class*='upload-area'] input",
+                    "input[data-testid='input']",
+                    "input[accept*='image/jpeg']"
+                ]
+
+                while not upload_ready and not self.should_stop:
+                    try:
+                        # Prefer document.readyState first
+                        try:
+                            ready = driver.execute_script("return document.readyState")
+                        except Exception:
+                            ready = None
+
+                        # Check if any upload selector is present
+                        found = False
+                        for sel in upload_selectors:
+                            try:
+                                elems = driver.find_elements(By.CSS_SELECTOR, sel)
+                                if elems and len(elems) > 0:
+                                    found = True
+                                    break
+                            except Exception:
+                                continue
+
+                        if ready == 'complete' and found:
+                            upload_ready = True
+                            break
+                    except Exception:
+                        # ignore transient errors and poll again
+                        pass
+
+                    time.sleep(self.polling_interval)
 
                 # ===== TAHAP 2: Upload Gambar (5-15%) =====
                 # Only log key events, not routine steps
@@ -441,7 +481,8 @@ class ImageProcessor:
 
                 # Upload file ke elemen input
                 input_file.send_keys(file_path)
-                time.sleep(2)  # Beri waktu lebih lama untuk upload selesai (ditambah dari 1 detik)
+                # Beri jeda singkat untuk memulai upload, selanjutnya kita akan polling untuk hasil enhancement
+                time.sleep(self.polling_interval)
 
                 self.update_progress(
                     f"File berhasil diunggah: {Path(file_path).name}", 
@@ -459,17 +500,16 @@ class ImageProcessor:
                     total=total_files
                 )
                 
-                # Implementasi retry logic dengan timeout keseluruhan
-                max_wait_time = 120  # 2 menit total
+                # Menunggu gambar muncul - polling setiap self.polling_interval tanpa timeout
                 start_time = time.time()
-                
+
                 found_image = False
                 image_url = None
-                
+
                 # Menunggu gambar muncul
                 processing_percent_range = percentages["processing"] - 5  # Dikurangi 5 yang sudah digunakan di atas
-                
-                while time.time() - start_time < max_wait_time and not found_image and not self.should_stop:
+
+                while not found_image and not self.should_stop:
                     try:
                         # Hitung persentase progress berdasarkan waktu yang telah berlalu
                         elapsed = time.time() - start_time
@@ -521,26 +561,12 @@ class ImageProcessor:
                             time.sleep(self.polling_interval)
                     except Exception:
                         time.sleep(self.polling_interval)
-                
                 if self.should_stop:
                     result["error"] = "Proses dihentikan pengguna"
                     logger.info("Pemrosesan dibatalkan oleh pengguna", file_name)
                     return result
-                    
-                if not found_image:
-                    self.update_progress(
-                        f"Gagal memproses: {Path(file_path).name}", 
-                        percentage=calculate_global_percent(percentages["browser_setup"] + percentages["upload"] + percentages["processing"]),
-                        current=current_num, 
-                        total=total_files
-                    )
-                    
-                    logger.kesalahan("Timeout menunggu hasil enhancement", file_name)
-                    # Ambil screenshot sebagai bukti
-                    screenshot_path = os.path.join(os.path.dirname(file_path), "UPSCALE", f"error_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png")
-                    os.makedirs(os.path.dirname(screenshot_path), exist_ok=True)
-                    driver.save_screenshot(screenshot_path)
-                    return result
+                # If we reach here and not found_image, but not stopped, loop will continue until found_image or should_stop
+                # After loop, if should_stop handled above, otherwise proceed when found_image is True
                 
                 # ===== TAHAP 4: Download Gambar (80-95%) =====
                 # Log important milestone - image found
