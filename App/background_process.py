@@ -468,7 +468,7 @@ class ImageProcessor:
                                 if self.config_manager:
                                     output_format = self.config_manager.get_output_format()
 
-                                enhanced_path = os.path.join(output_folder, f"{base_name}_upscaled_{timestamp}.{output_format}")
+                                enhanced_path = os.path.join(output_folder, f"{base_name}_{timestamp}.{output_format}")
 
                                 if output_format == "jpg":
                                     try:
@@ -477,7 +477,7 @@ class ImageProcessor:
                                         HAS_PIL = True
                                     except ImportError:
                                         HAS_PIL = False
-                                        enhanced_path = os.path.join(output_folder, f"{base_name}_upscaled_{timestamp}.png")
+                                        enhanced_path = os.path.join(output_folder, f"{base_name}_{timestamp}.png")
                                         with open(enhanced_path, 'wb') as f:
                                             for chunk_data in response.iter_content(1024):
                                                 f.write(chunk_data)
@@ -992,7 +992,7 @@ class ImageProcessor:
                         output_format = self.config_manager.get_output_format()
                     
                     # Simpan file with the selected format
-                    enhanced_path = os.path.join(output_folder, f"{file_name}_upscaled_{timestamp}.{output_format}")
+                    enhanced_path = os.path.join(output_folder, f"{file_name}_{timestamp}.{output_format}")
                     
                     # When downloading the image, convert to JPG if needed
                     if output_format == "jpg" and response.status_code == 200:
@@ -1006,7 +1006,7 @@ class ImageProcessor:
                                 HAS_PIL = False
                                 logger.peringatan("PIL tidak tersedia - tidak dapat konversi ke JPG", "Silakan install pillow: pip install pillow")
                                 # Fallback to PNG
-                                enhanced_path = os.path.join(output_folder, f"{file_name}_upscaled_{timestamp}.png")
+                                enhanced_path = os.path.join(output_folder, f"{file_name}_{timestamp}.png")
                                 with open(enhanced_path, 'wb') as f:
                                     for chunk in response.iter_content(1024):
                                         f.write(chunk)
@@ -1031,7 +1031,7 @@ class ImageProcessor:
                         except Exception as e:
                             logger.kesalahan(f"Error saat konversi ke JPG", f"{file_name} - {str(e)}")
                             # Fallback to PNG
-                            enhanced_path = os.path.join(output_folder, f"{file_name}_upscaled_{timestamp}.png")
+                            enhanced_path = os.path.join(output_folder, f"{file_name}_{timestamp}.png")
                             with open(enhanced_path, 'wb') as f:
                                 for chunk in response.iter_content(1024):
                                     f.write(chunk)
