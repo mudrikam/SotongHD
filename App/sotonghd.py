@@ -419,6 +419,13 @@ class SotongHDApp(QMainWindow):
                 headless=(bool(self.headlessCheck.isChecked()) if hasattr(self, 'headlessCheck') else None),
                 incognito=(bool(self.incognitoCheck.isChecked()) if hasattr(self, 'incognitoCheck') else None)
             )
+            # Initialize batch size from UI spinner if available
+            try:
+                if hasattr(self, 'batchSpinner') and self.batchSpinner:
+                    self.image_processor.batch_size = int(self.batchSpinner.value())
+            except Exception:
+                # keep default
+                pass
             logger.sukses("Aplikasi SotongHD siap digunakan")
             logger.info("Untuk memulai, seret dan lepas gambar atau folder ke area drop")
         except Exception as e:
@@ -575,6 +582,13 @@ class SotongHDApp(QMainWindow):
                 self.image_processor.incognito = bool(self.incognitoCheck.isChecked())
             else:
                 self.image_processor.incognito = None
+
+            # Apply batch size from UI spinner right before starting
+            if hasattr(self, 'batchSpinner'):
+                try:
+                    self.image_processor.batch_size = int(self.batchSpinner.value())
+                except Exception:
+                    self.image_processor.batch_size = 1
 
         self.image_processor.start_processing(file_paths)
         

@@ -52,6 +52,9 @@ class ImageProcessor:
         # Browser options provided by UI; None means 'unspecified' (don't assume)
         self.headless = headless
         self.incognito = incognito
+        # Batch processing: number of concurrent browser instances/tabs to use
+        # Default 1 (sequential). GUI will set this prior to start_processing.
+        self.batch_size = 1
         
         
     def update_progress(self, message: str, percentage: int = None, current: int = None, total: int = None):
@@ -163,44 +166,434 @@ class ImageProcessor:
             files: Daftar path file yang akan diproses
         """
         total_files = len(files)
-        
-        for i, file_path in enumerate(files):
+
+        # Respect configured batch size (minimum 1, maximum reasonable cap 10)
+        batch_size = max(1, int(getattr(self, 'batch_size', 1) or 1))
+        if batch_size > 20:
+            # Safety cap to avoid massive parallelism
+            batch_size = 20
+
+        logger.info(f"Memproses {total_files} file dengan batch_size={batch_size}")
+
+        # Process files in chunks of batch_size
+        for start in range(0, total_files, batch_size):
             if self.should_stop:
                 logger.info("Pemrosesan dihentikan")
                 break
-                
-            current_num = i + 1
-            file_name = Path(file_path).name
-            
-            # Only log the start of processing for each file, not detailed steps
-            if current_num == 1 or current_num == total_files or current_num % 5 == 0:
-                logger.info(f"Memproses file {current_num} dari {total_files}", f"{file_name}")
-            
-            # Signal that we're processing a new file
-            if self.file_update_signal:
-                self.file_update_signal.file_update.emit(file_path, False)
-                
-            self.update_progress(
-                f"Memproses file", 
-                percentage=int((i / total_files) * 100),
-                current=current_num,
-                total=total_files
-            )
-            
-            try:
-                result = self.process_image(file_path, current_num, total_files)
-                self.results.append(result)
-                
-                if result["success"]:
+
+            chunk = files[start:start + batch_size]
+            drivers = [None] * len(chunk)
+            chunk_results = [None] * len(chunk)
+
+            # Launch one browser instance per item in the chunk
+            for idx, file_path in enumerate(chunk):
+                if self.should_stop:
+                    break
+
+                current_num = start + idx + 1
+                file_name = Path(file_path).name
+
+                # Signal that we're processing a new file
+                if self.file_update_signal:
+                    self.file_update_signal.file_update.emit(file_path, False)
+
+                # Update progress (start of browser setup for this file)
+                self.update_progress(
+                    f"Memproses file",
+                    percentage=int(( (start + idx) / total_files) * 100),
+                    current=current_num,
+                    total=total_files
+                )
+
+                try:
+                    # Setup browser for this slot
+                    try:
+                        chrome_options = Options()
+                        if self.headless is True:
+                            try:
+                                chrome_options.add_argument("--headless=new")
+                            except Exception:
+                                chrome_options.add_argument("--headless")
+
+                        chrome_options.add_argument("--disable-gpu")
+                        chrome_options.add_argument("--window-size=1366,768")
+                        chrome_options.add_argument("--log-level=3")
+                        if self.incognito:
+                            chrome_options.add_argument("--incognito")
+                        chrome_options.add_experimental_option('excludeSwitches', ['enable-logging'])
+
+                        # Build capabilities and apply defensive filtering similar to single-run logic
+                        try:
+                            caps = chrome_options.to_capabilities() or {}
+                        except Exception:
+                            caps = {}
+
+                        current_args = caps.get('goog:chromeOptions', {}).get('args', []) or []
+                        filtered_args = []
+                        for a in current_args:
+                            if self.headless is False and (a.startswith('--headless') or a == '--headless'):
+                                continue
+                            if self.incognito is False and a == '--incognito':
+                                continue
+                            filtered_args.append(a)
+
+                        base_required = ['--disable-gpu', '--window-size=1366,768', '--log-level=3']
+                        for req in base_required:
+                            if req not in filtered_args:
+                                filtered_args.append(req)
+
+                        if self.incognito is True and '--incognito' not in filtered_args:
+                            filtered_args.append('--incognito')
+
+                        if self.headless is True and not any(x.startswith('--headless') for x in filtered_args):
+                            try:
+                                filtered_args.insert(0, '--headless=new')
+                            except Exception:
+                                filtered_args.insert(0, '--headless')
+
+                        caps.setdefault('goog:chromeOptions', {})['args'] = filtered_args
+
+                        logger.info(f"Launching Chrome slot={idx} - headless={self.headless}, incognito={self.incognito}", str(caps.get('goog:chromeOptions', caps)))
+
+                        try:
+                            driver = webdriver.Chrome(service=Service(self.chromedriver_path), desired_capabilities=caps)
+                        except TypeError:
+                            driver = webdriver.Chrome(service=Service(self.chromedriver_path), options=chrome_options)
+
+                        drivers[idx] = driver
+                        # Open the target page but do not upload yet
+                        driver.get("https://picsart.com/id/ai-image-enhancer/")
+
+                    except Exception as e:
+                        logger.kesalahan("Gagal membuka browser untuk file", f"{file_name} - {str(e)}")
+                        chunk_results[idx] = {
+                            "file_path": file_path,
+                            "success": False,
+                            "enhanced_path": None,
+                            "error": str(e),
+                            "start_time": datetime.now(),
+                            "end_time": datetime.now(),
+                            "duration": 0
+                        }
+                        # Ensure driver slot remains None
+                        drivers[idx] = None
+                except Exception as e:
+                    logger.kesalahan("Unexpected error during browser setup", str(e))
+
+            # Wait until all non-None drivers have the upload element ready
+            upload_selectors = [
+                "div[id='uploadArea'] input[type='file']",
+                "div[id='uploadArea'] input",
+                "div[class*='upload-area-root'] input[type='file']",
+                "div[class*='upload-area'] input[type='file']",
+                "div[class*='upload-area'] input",
+                "input[data-testid='input']",
+                "input[accept*='image/jpeg']"
+            ]
+
+            all_ready = False
+            while not all_ready and not self.should_stop:
+                all_ready = True
+                for d in drivers:
+                    if d is None:
+                        continue
+                    try:
+                        ready = None
+                        try:
+                            ready = d.execute_script("return document.readyState")
+                        except Exception:
+                            ready = None
+
+                        found = False
+                        for sel in upload_selectors:
+                            try:
+                                elems = d.find_elements(By.CSS_SELECTOR, sel)
+                                if elems and len(elems) > 0:
+                                    found = True
+                                    break
+                            except Exception:
+                                continue
+
+                        if not (ready == 'complete' and found):
+                            all_ready = False
+                            break
+                    except Exception:
+                        all_ready = False
+                        break
+
+                if not all_ready:
+                    time.sleep(self.polling_interval)
+
+            if self.should_stop:
+                # Clean up any open drivers
+                for d in drivers:
+                    try:
+                        if d:
+                            d.quit()
+                    except Exception:
+                        pass
+                break
+
+            # Now upload files into each ready driver
+            for idx, d in enumerate(drivers):
+                if d is None:
+                    continue
+
+                file_path = chunk[idx]
+                file_name = Path(file_path).name
+
+                # Find input element for this driver
+                input_file = None
+                for selector in upload_selectors:
+                    try:
+                        input_file = d.find_element(By.CSS_SELECTOR, selector)
+                        if input_file:
+                            logger.info(f"Slot {idx}: Mengunggah {file_name} ke selector {selector}")
+                            break
+                    except Exception:
+                        continue
+
+                if not input_file:
+                    try:
+                        input_file = d.execute_script("return document.querySelector('div[id=\'uploadArea\'] input') || document.querySelector('input[type=\'file\']') || document.querySelector('input[data-testid=\'input\']');")
+                    except Exception:
+                        input_file = None
+
+                if not input_file:
+                    # mark failure for this slot
+                    logger.kesalahan("Slot upload element not found", file_name)
+                    chunk_results[idx] = {
+                        "file_path": file_path,
+                        "success": False,
+                        "enhanced_path": None,
+                        "error": "Tidak dapat menemukan elemen input file",
+                        "start_time": datetime.now(),
+                        "end_time": datetime.now(),
+                        "duration": 0
+                    }
+                    try:
+                        d.quit()
+                    except Exception:
+                        pass
+                    drivers[idx] = None
+                    continue
+
+                # send file path to input
+                try:
+                    input_file.send_keys(file_path)
+                except Exception as e:
+                    # If send_keys fails, mark this slot as failed and close the driver to avoid hanging
+                    logger.kesalahan("Gagal mengirim file ke input upload", f"{file_name} - {str(e)}")
+                    chunk_results[idx] = {
+                        "file_path": file_path,
+                        "success": False,
+                        "enhanced_path": None,
+                        "error": "Gagal mengirim file ke elemen input",
+                        "start_time": datetime.now(),
+                        "end_time": datetime.now(),
+                        "duration": 0
+                    }
+                    try:
+                        d.quit()
+                    except Exception:
+                        pass
+                    drivers[idx] = None
+                    continue
+
+                # small pause to allow upload to start
+                time.sleep(self.polling_interval)
+
+            # After uploading, poll each driver for its EnhancedImage; close as each completes
+            pending = sum(1 for r in drivers if r is not None)
+            start_times = [datetime.now() for _ in chunk]
+
+            while pending > 0 and not self.should_stop:
+                for idx, d in enumerate(drivers):
+                    if d is None:
+                        continue
+
+                    file_path = chunk[idx]
+                    file_name = Path(file_path).name
+
+                    # If this slot already has a result, skip
+                    if chunk_results[idx] is not None:
+                        continue
+
+                    try:
+                        # Check for enhanced image via JS selectors
+                        possible_selectors = [
+                            'div[data-testid="EnhancedImage"] img',
+                            'div[data-testid="EnhancedImage"][class*="widget-widgetContainer"] img',
+                            'div[data-testid="EnhancedImage"] *[src]',
+                            'img[alt*="enhanced"]',
+                            'div[data-testid="EnhancedImage"]>div>img',
+                            'div[data-testid="EnhancedImage"] picture img'
+                        ]
+
+                        found_image = False
+                        image_url = None
+                        for selector in possible_selectors:
+                            try:
+                                img_elements = d.execute_script(f"return document.querySelectorAll('{selector}');")
+                                if img_elements and len(img_elements) > 0:
+                                    for img in img_elements:
+                                        # img may be a remote element proxy; attempt to read src attr
+                                        try:
+                                            src = img.get_attribute('src')
+                                        except Exception:
+                                            try:
+                                                src = d.execute_script('return arguments[0].getAttribute("src");', img)
+                                            except Exception:
+                                                src = None
+
+                                        if src and 'http' in src:
+                                            image_url = src
+                                            found_image = True
+                                            break
+                                    if found_image:
+                                        break
+                            except Exception:
+                                continue
+
+                        if found_image and image_url:
+                            # Download image (reuse single-file logic)
+                            response = requests.get(image_url, stream=True)
+                            if response.status_code == 200:
+                                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                                base_name = Path(file_path).stem
+                                output_folder = os.path.join(os.path.dirname(file_path), "UPSCALE")
+                                os.makedirs(output_folder, exist_ok=True)
+
+                                output_format = "png"
+                                if self.config_manager:
+                                    output_format = self.config_manager.get_output_format()
+
+                                enhanced_path = os.path.join(output_folder, f"{base_name}_upscaled_{timestamp}.{output_format}")
+
+                                if output_format == "jpg":
+                                    try:
+                                        from PIL import Image
+                                        import io
+                                        HAS_PIL = True
+                                    except ImportError:
+                                        HAS_PIL = False
+                                        enhanced_path = os.path.join(output_folder, f"{base_name}_upscaled_{timestamp}.png")
+                                        with open(enhanced_path, 'wb') as f:
+                                            for chunk_data in response.iter_content(1024):
+                                                f.write(chunk_data)
+
+                                    if HAS_PIL:
+                                        temp_path = os.path.join(output_folder, f"{base_name}_temp_{timestamp}.png")
+                                        with open(temp_path, 'wb') as f:
+                                            for chunk_data in response.iter_content(1024):
+                                                f.write(chunk_data)
+
+                                        img = Image.open(temp_path)
+                                        rgb_img = img.convert('RGB')
+                                        rgb_img.save(enhanced_path, quality=95)
+                                        if os.path.exists(temp_path):
+                                            os.remove(temp_path)
+                                else:
+                                    with open(enhanced_path, 'wb') as f:
+                                        for chunk_data in response.iter_content(1024):
+                                            f.write(chunk_data)
+
+                                # Mark success for this slot
+                                chunk_results[idx] = {
+                                    "file_path": file_path,
+                                    "success": True,
+                                    "enhanced_path": enhanced_path,
+                                    "error": None,
+                                    "start_time": start_times[idx],
+                                    "end_time": datetime.now(),
+                                    "duration": (datetime.now() - start_times[idx]).total_seconds()
+                                }
+
+                                logger.sukses(f"Berhasil menyimpan gambar enhancement", enhanced_path)
+
+                                # Update progress for this file
+                                current_num = start + idx + 1
+                                self.update_progress(
+                                    f"Gambar berhasil disimpan: {Path(enhanced_path).name}",
+                                    percentage=int(((current_num) / total_files) * 100),
+                                    current=current_num,
+                                    total=total_files
+                                )
+
+                                # Close this driver
+                                try:
+                                    d.quit()
+                                except Exception:
+                                    pass
+                                drivers[idx] = None
+                                pending -= 1
+                            else:
+                                # download failed
+                                chunk_results[idx] = {
+                                    "file_path": file_path,
+                                    "success": False,
+                                    "enhanced_path": None,
+                                    "error": f"Gagal mengunduh hasil. Status code: {response.status_code}",
+                                    "start_time": start_times[idx],
+                                    "end_time": datetime.now(),
+                                    "duration": (datetime.now() - start_times[idx]).total_seconds()
+                                }
+                                logger.kesalahan(f"Gagal mengunduh hasil. Status code: {response.status_code}", file_name)
+                                try:
+                                    d.quit()
+                                except Exception:
+                                    pass
+                                drivers[idx] = None
+                                pending -= 1
+
+                        else:
+                            # Not ready yet; continue polling
+                            continue
+
+                    except Exception as e:
+                        # Mark failure for this slot and ensure driver closed
+                        logger.kesalahan("Error saat menunggu hasil di slot", f"{file_name} - {str(e)}")
+                        chunk_results[idx] = {
+                            "file_path": file_path,
+                            "success": False,
+                            "enhanced_path": None,
+                            "error": str(e),
+                            "start_time": start_times[idx],
+                            "end_time": datetime.now(),
+                            "duration": (datetime.now() - start_times[idx]).total_seconds()
+                        }
+                        try:
+                            d.quit()
+                        except Exception:
+                            pass
+                        drivers[idx] = None
+                        pending -= 1
+
+                # Sleep between polling cycles
+                if pending > 0:
+                    time.sleep(self.polling_interval)
+
+            # At this point, chunk_results contains results for this batch (some may be None if driver setup failed earlier)
+            # Normalize and append to global results, update counters
+            for idx, file_path in enumerate(chunk):
+                res = chunk_results[idx]
+                if res is None:
+                    # If still None, it means something unexpected; mark as failed
+                    res = {
+                        "file_path": file_path,
+                        "success": False,
+                        "enhanced_path": None,
+                        "error": "Unknown error or aborted",
+                        "start_time": datetime.now(),
+                        "end_time": datetime.now(),
+                        "duration": 0
+                    }
+
+                self.results.append(res)
+                if res.get("success"):
                     self.total_processed += 1
-                    logger.sukses("Berhasil memproses gambar", file_name)
                 else:
                     self.total_failed += 1
-                    logger.kesalahan("Gagal memproses gambar", f"{file_name} - {result.get('error', 'Alasan tidak diketahui')}")
-                    
-            except Exception as e:
-                self.total_failed += 1
-                logger.kesalahan("Error saat memproses gambar", f"{file_name} - {str(e)}")
         
         self.end_time = datetime.now()
         
