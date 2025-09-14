@@ -5,9 +5,9 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QMessageBox, 
                               QVBoxLayout, QLabel, QPushButton, QFileDialog,
                               QHBoxLayout, QGridLayout, QScrollArea, QSizePolicy, QTextEdit, QCheckBox)
 # Fix the import for QUiLoader - it should be from QtUiTools, not QtWidgets
-from PySide6.QtUiTools import QUiLoader
 from PySide6.QtGui import QIcon, QPixmap, QDragEnterEvent, QDropEvent
 from PySide6.QtCore import Qt, QTimer, QSize, QUrl, Signal, QObject
+from PySide6.QtWidgets import QFrame, QSpacerItem
 from pathlib import Path
 
 from .background_process import ImageProcessor, ProgressSignal, FileUpdateSignal
@@ -47,25 +47,165 @@ class SotongHDApp(QMainWindow):
         else:
             logger.peringatan("Ikon aplikasi tidak ditemukan", icon_path)
         
-        # Load the UI
-        ui_file = os.path.join(base_dir, "App", "main_window.ui")
-        try:
-            loader = QUiLoader()
-            self.ui = loader.load(ui_file)
-        except Exception as e:
-            logger.kesalahan("Gagal memuat UI", str(e))
-            QMessageBox.critical(self, "Error", f"Gagal memuat UI: {str(e)}")
-            sys.exit(1)
-        
-        # Set window properties from UI
-        self.setGeometry(self.ui.geometry())
-        self.setWindowTitle(self.ui.windowTitle())
-        
+        # Main window properties
+        self.setGeometry(100, 100, 700, 700)
+        self.setWindowTitle("SotongHD")
+
         # Center the window on the screen
         center_window_on_screen(self)
-        
-        # Set the loaded UI as the central widget
-        self.setCentralWidget(self.ui.centralWidget())
+
+        # Central widget
+        central_widget = QWidget(self)
+        central_widget.setObjectName("centralwidget")
+        main_vlayout = QVBoxLayout(central_widget)
+        main_vlayout.setObjectName("verticalLayout_2")
+
+        # Top area with drop frame
+        top_vlayout = QVBoxLayout()
+        top_vlayout.setObjectName("verticalLayout")
+
+        # Drop frame
+        drop_frame = QFrame(central_widget)
+        drop_frame.setObjectName("dropFrame")
+        drop_frame.setFrameShape(QFrame.StyledPanel)
+        drop_frame.setFrameShadow(QFrame.Raised)
+        drop_frame.setStyleSheet("QFrame#dropFrame {\n  border: 2px dashed rgba(88, 29, 239, 0.08);\n  border-radius: 15px;\n  background-color: rgba(88, 29, 239, 0.08);\n}\n")
+
+        drop_layout = QVBoxLayout(drop_frame)
+        drop_layout.setObjectName("dropAreaLayout")
+
+        # Top spacer
+        self.topSpacer = QSpacerItem(20, 40, QSizePolicy.Minimum, QSizePolicy.Expanding)
+        drop_layout.addItem(self.topSpacer)
+
+        # Icon label
+        self.iconLabel = QLabel(drop_frame)
+        self.iconLabel.setObjectName("iconLabel")
+        self.iconLabel.setMinimumSize(96, 96)
+        # Try to set pixmap from expected locations
+        possible_icon = os.path.join(base_dir, "sotonghd.ico")
+        if os.path.exists(possible_icon):
+            self.iconLabel.setPixmap(QPixmap(possible_icon))
+        self.iconLabel.setAlignment(Qt.AlignCenter)
+        drop_layout.addWidget(self.iconLabel, alignment=Qt.AlignCenter)
+
+        # Title label
+        self.titleLabel = QLabel("LEMPARKAN GAMBAR KE SINI!", drop_frame)
+        self.titleLabel.setObjectName("titleLabel")
+        title_font = self.titleLabel.font()
+        title_font.setPointSize(20)
+        title_font.setBold(True)
+        self.titleLabel.setFont(title_font)
+        self.titleLabel.setStyleSheet("color : rgba(138, 60, 226, 0.62);")
+        self.titleLabel.setAlignment(Qt.AlignCenter)
+        drop_layout.addWidget(self.titleLabel)
+
+        # Subtitle label
+        self.subtitleLabel = QLabel(drop_frame)
+        self.subtitleLabel.setObjectName("subtitleLabel")
+        subtitle_font = self.subtitleLabel.font()
+        subtitle_font.setPointSize(10)
+        self.subtitleLabel.setFont(subtitle_font)
+        self.subtitleLabel.setStyleSheet("color : rgba(148, 139, 160, 0.7);")
+        self.subtitleLabel.setAlignment(Qt.AlignCenter)
+        self.subtitleLabel.setWordWrap(True)
+        self.subtitleLabel.setText("""
+            Script ini hanya mengunggah gambar ke situs Picsart dan menggunakan fitur upscale otomatis di sana.
+
+            Upscale tidak dilakukan oleh aplikasi ini, tapi oleh server Picsart.
+            Hasil akan disimpan otomatis ke folder 'UPSCALE' sumber file asli. Fitur gratis Picsart hanya mendukung hingga 2x upscale. Gunakan seperlunya.
+            """)
+        drop_layout.addWidget(self.subtitleLabel)
+
+        # Bottom spacer
+        self.bottomSpacer = QSpacerItem(20, 40, QSizePolicy.Minimum, QSizePolicy.Expanding)
+        drop_layout.addItem(self.bottomSpacer)
+
+        top_vlayout.addWidget(drop_frame)
+        main_vlayout.addLayout(top_vlayout)
+
+        # Progress bar
+        self.progress_bar = QProgressBar(central_widget)
+        self.progress_bar.setObjectName("progressBar")
+        self.progress_bar.setMinimumSize(0, 30)
+        self.progress_bar.setValue(0)
+        self.progress_bar.setTextVisible(True)
+        self.progress_bar.setFormat("Ready")
+        self.progress_bar.setStyleSheet("QProgressBar {\n  border: none;\n  border-radius: 10px;\n  background-color: rgba(161, 161, 161, 0.08);\n  text-align: center;\n  font-weight: bold;\n  margin: 0px;\n  padding: 0px;\n  height: 30px;\n}\nQProgressBar::chunk {\n  background-color: #5720e3;\n  border-radius: 10px;\n}")
+        main_vlayout.addWidget(self.progress_bar)
+
+        # Log display
+        self.log_display = QTextEdit(central_widget)
+        self.log_display.setObjectName("logDisplay")
+        self.log_display.setMinimumSize(0, 100)
+        self.log_display.setMaximumHeight(150)
+        self.log_display.setReadOnly(True)
+        self.log_display.setStyleSheet("QTextEdit {\n  border: none;\n  border-radius: 10px;\n  background-color: rgba(161, 161, 161, 0.08);\n  color: rgba(88, 29, 239, 0.7);\n  padding: 8px;\n  font-family: 'Consolas', monospace;\n  font-size: 9pt;\n}\n")
+        main_vlayout.addWidget(self.log_display)
+
+        # Buttons row
+        buttons_layout = QHBoxLayout()
+        buttons_layout.setObjectName("buttonsLayout")
+
+        # WhatsApp button
+        self.whatsappButton = QPushButton(central_widget)
+        self.whatsappButton.setObjectName("whatsappButton")
+        self.whatsappButton.setMinimumSize(40, 40)
+        self.whatsappButton.setToolTip("Join WhatsApp Group")
+        self.whatsappButton.setStyleSheet("QPushButton {\n  background-color: rgba(161, 161, 161, 0.08);\n  color: rgba(88, 29, 239, 0.7);\n  border-radius: 20px;\n  padding: 8px;\n}\nQPushButton:hover {\n  background-color: rgba(37, 211, 102, 0.8);\n  color: white;\n  border: none;\n}\nQPushButton:pressed {\n  background-color: rgba(37, 211, 102, 1.0);\n}")
+        buttons_layout.addWidget(self.whatsappButton)
+
+        # Format selector layout
+        buttons_layout.addStretch()
+        format_layout = QHBoxLayout()
+        format_layout.setSpacing(4)
+        self.formatLabel = QLabel("PNG", central_widget)
+        self.formatLabel.setObjectName("formatLabel")
+        self.formatLabel.setStyleSheet("color: rgb(85, 0, 255);")
+        format_layout.addWidget(self.formatLabel)
+
+        self.formatToggle = QCheckBox(central_widget)
+        self.formatToggle.setObjectName("formatToggle")
+        self.formatToggle.setMinimumSize(60, 24)
+        self.formatToggle.setMaximumSize(60, 24)
+        self.formatToggle.setStyleSheet("QCheckBox { spacing: 0px; }\nQCheckBox::indicator { width: 60px; height: 24px; border-radius: 12px; background-color: rgba(88, 29, 239, 0.3);}\nQCheckBox::indicator:checked { background-color: rgba(52, 152, 219, 0.5);} ")
+        format_layout.addWidget(self.formatToggle)
+
+        self.formatLabel2 = QLabel("JPG", central_widget)
+        self.formatLabel2.setObjectName("formatLabel2")
+        self.formatLabel2.setStyleSheet("color: rgb(0, 125, 139);")
+        format_layout.addWidget(self.formatLabel2)
+
+        buttons_layout.addLayout(format_layout)
+        buttons_layout.addStretch()
+
+        # Stop button
+        self.stopButton = QPushButton("Stop", central_widget)
+        self.stopButton.setObjectName("stopButton")
+        self.stopButton.setEnabled(False)
+        self.stopButton.setMinimumSize(90, 40)
+        self.stopButton.setStyleSheet("QPushButton {\n  background-color: rgba(161, 161, 161, 0.08);\n  border-radius: 10px;\n  padding: 8px 16px;\n}\nQPushButton:hover {\n  background-color: rgba(231, 76, 60, 0.7);\n  color: white;\n  border: none;\n}\nQPushButton:pressed {\n  background-color: rgba(231, 76, 60, 1.0);\n}\nQPushButton:disabled {\n  background-color: rgba(161, 161, 161, 0.04);\n  color: rgba(161, 161, 161, 0.4);\n}")
+        buttons_layout.addWidget(self.stopButton)
+
+        # Open Folder and Open Files buttons
+        self.openFolderButton = QPushButton(" Open Folder", central_widget)
+        self.openFolderButton.setObjectName("openFolderButton")
+        self.openFolderButton.setMinimumSize(180, 40)
+        self.openFolderButton.setStyleSheet("QPushButton {\n  background-color: rgba(161, 161, 161, 0.08);\n  border-radius: 10px;\n  padding: 8px 16px;\n}\nQPushButton:hover {\n  background-color: rgba(88, 29, 239, 0.7);\n  color: white;\n  border: none;\n}\nQPushButton:pressed {\n  background-color: rgba(88, 29, 239, 1.0);\n}")
+        buttons_layout.addWidget(self.openFolderButton)
+
+        self.openFilesButton = QPushButton("Open Files", central_widget)
+        self.openFilesButton.setObjectName("openFilesButton")
+        self.openFilesButton.setMinimumSize(180, 40)
+        self.openFilesButton.setStyleSheet(self.openFolderButton.styleSheet())
+        buttons_layout.addWidget(self.openFilesButton)
+
+        main_vlayout.addLayout(buttons_layout)
+
+        # Menu bar / status bar placeholders (not strictly required)
+        self.setCentralWidget(central_widget)
+        # Keep reference for code that expected self.ui
+        self.ui = central_widget
         
         # Set up drag and drop support
         self.setAcceptDrops(True)
@@ -88,22 +228,27 @@ class SotongHDApp(QMainWindow):
     def setup_ui_elements(self):
         """Find and setup UI elements"""
         # Get UI elements
-        self.dropFrame = self.findChild(QWidget, "dropFrame")
-        self.iconLabel = self.findChild(QLabel, "iconLabel")
-        self.titleLabel = self.findChild(QWidget, "titleLabel")
-        self.subtitleLabel = self.findChild(QWidget, "subtitleLabel")
-        self.progress_bar = self.findChild(QProgressBar, "progressBar")
-        self.log_display = self.findChild(QTextEdit, "logDisplay")
+        # We constructed the widgets in __init__, just reference them
+        # Keep the same attribute names used across the codebase
+        self.dropFrame = getattr(self, 'dropFrame', None)
+        # If not created earlier, try to find by objectName
+        if not self.dropFrame:
+            self.dropFrame = self.findChild(QFrame, "dropFrame")
+        # iconLabel, titleLabel, subtitleLabel, progress_bar, log_display exist as attributes
+        self.iconLabel = getattr(self, 'iconLabel', self.findChild(QLabel, "iconLabel"))
+        self.titleLabel = getattr(self, 'titleLabel', self.findChild(QLabel, "titleLabel"))
+        self.subtitleLabel = getattr(self, 'subtitleLabel', self.findChild(QLabel, "subtitleLabel"))
+        self.progress_bar = getattr(self, 'progress_bar', self.findChild(QProgressBar, "progressBar"))
+        self.log_display = getattr(self, 'log_display', self.findChild(QTextEdit, "logDisplay"))
         
-        # Get spacers
-        self.topSpacer = self.findChild(QWidget, "verticalSpacer")
-        self.bottomSpacer = self.findChild(QWidget, "verticalSpacer_2")
+    # Spacers we created in __init__
+    # self.topSpacer and self.bottomSpacer are QSpacerItem instances
         
         # Connect the logger to the UI log display
         if self.log_display:
             logger.set_log_widget(self.log_display)
             
-        # Ensure proper expansion behavior
+    # Ensure proper expansion behavior
         self.configure_size_policies()
         
         # Set high resolution icon if available
