@@ -1,3 +1,4 @@
 {
-  "output_format": "png"
+  "output_format": "png",
+  "chromedriver_url": "https://storage.googleapis.com/chrome-for-testing-public/140.0.7339.82/win64/chromedriver-win64.zip"
 }
