@@ -141,7 +141,6 @@ class SotongHDApp(QMainWindow):
         # Batch size label and spinner (1-10)
         self.batchLabel = QLabel("Batch:", central_widget)
         self.batchLabel.setObjectName("batchLabel")
-        self.batchLabel.setStyleSheet("color: rgb(85, 0, 255);")
         controls_layout.addWidget(self.batchLabel)
 
         from PySide6.QtWidgets import QSpinBox
