@@ -178,6 +178,15 @@ def main():
     # Make sure chromedriver is downloaded
     download_chromedriver()
 
+    # Set Windows AppUserModelID for proper taskbar icon (only on Windows)
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            appid = u"mudrikam.SotongHD"
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(appid)
+        except Exception as e:
+            print(f"Warning: Failed to set AppUserModelID: {e}")
+
     # Get the icon path
     icon_path = set_app_icon(BASE_DIR)
 
