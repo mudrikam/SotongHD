@@ -598,11 +598,28 @@ class SotongHDApp(QMainWindow):
             from selenium import webdriver
             from selenium.webdriver.chrome.service import Service
             from selenium.webdriver.chrome.options import Options
+            import tempfile
+            
+            # Debug: Print base_dir untuk memastikan path yang benar
+            logger.info(f"Base directory: {self.base_dir}")
             
             # Use embedded chromedriver - MUST be from driver folder only
             chromedriver_path = os.path.join(self.base_dir, "driver", "chromedriver.exe")
             
+            # Convert to absolute path and normalize
+            chromedriver_path = os.path.abspath(chromedriver_path)
+            
+            logger.info(f"Mencari ChromeDriver di: {chromedriver_path}")
+            
             if not os.path.exists(chromedriver_path):
+                # List contents of driver folder for debugging
+                driver_folder = os.path.join(self.base_dir, "driver")
+                if os.path.exists(driver_folder):
+                    contents = os.listdir(driver_folder)
+                    logger.info(f"Isi folder driver: {contents}")
+                else:
+                    logger.kesalahan("Folder driver tidak ditemukan", driver_folder)
+                
                 error_msg = f"ChromeDriver tidak ditemukan di: {chromedriver_path}"
                 logger.kesalahan("ChromeDriver tidak ditemukan", chromedriver_path)
                 QMessageBox.critical(self, "Error", f"{error_msg}\n\nPastikan file chromedriver.exe ada di folder driver/")
@@ -616,20 +633,40 @@ class SotongHDApp(QMainWindow):
             chrome_options.add_argument("--profile-directory=Default")
             chrome_options.add_argument("--disable-dev-shm-usage")
             chrome_options.add_argument("--no-sandbox")
+            chrome_options.add_argument("--disable-blink-features=AutomationControlled")
             chrome_options.add_experimental_option('excludeSwitches', ['enable-logging'])
             chrome_options.add_experimental_option('useAutomationExtension', False)
+            
+            # Set a temporary user data directory to avoid conflicts
+            temp_user_data = tempfile.mkdtemp(prefix="chrome_temp_")
+            chrome_options.add_argument(f"--user-data-dir={temp_user_data}")
             
             logger.info(f"Menggunakan ChromeDriver: {chromedriver_path}")
             logger.info("Membuka Chrome untuk cek update")
             
-            # Initialize Chrome with WebDriver using embedded chromedriver only
-            service = Service(chromedriver_path)
-            driver = webdriver.Chrome(service=service, options=chrome_options)
+            # Initialize Chrome with WebDriver - force to use our chromedriver only
+            service = Service(executable_path=chromedriver_path)
             
-            # Navigate to Chrome settings help page
-            driver.get("chrome://settings/help")
-            
-            logger.sukses("Chrome berhasil dibuka untuk cek update")
+            # Ensure no PATH interference by temporarily clearing webdriver manager cache
+            old_path = os.environ.get('PATH', '')
+            try:
+                # Remove any webdriver manager paths
+                new_path_parts = []
+                for part in old_path.split(os.pathsep):
+                    if 'webdriver' not in part.lower() and 'chromedriver' not in part.lower():
+                        new_path_parts.append(part)
+                os.environ['PATH'] = os.pathsep.join(new_path_parts)
+                
+                driver = webdriver.Chrome(service=service, options=chrome_options)
+                
+                # Navigate to Chrome settings help page
+                driver.get("chrome://settings/help")
+                
+                logger.sukses("Chrome berhasil dibuka untuk cek update")
+                
+            finally:
+                # Restore original PATH
+                os.environ['PATH'] = old_path
             
         except FileNotFoundError as e:
             error_msg = f"ChromeDriver tidak ditemukan: {str(e)}"
