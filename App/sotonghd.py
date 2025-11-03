@@ -593,18 +593,19 @@ class SotongHDApp(QMainWindow):
         open_whatsapp_group()
     
     def on_chrome_update_click(self):
-        """Open Chrome browser to check for updates"""
+        """Open Chrome browser to check for updates using embedded ChromeDriver"""
         try:
             from selenium import webdriver
             from selenium.webdriver.chrome.service import Service
             from selenium.webdriver.chrome.options import Options
             
-            # Get chromedriver path from image processor
+            # Use embedded chromedriver - MUST be from driver folder only
             chromedriver_path = os.path.join(self.base_dir, "driver", "chromedriver.exe")
             
             if not os.path.exists(chromedriver_path):
+                error_msg = f"ChromeDriver tidak ditemukan di: {chromedriver_path}"
                 logger.kesalahan("ChromeDriver tidak ditemukan", chromedriver_path)
-                QMessageBox.warning(self, "Error", "ChromeDriver tidak ditemukan")
+                QMessageBox.critical(self, "Error", f"{error_msg}\n\nPastikan file chromedriver.exe ada di folder driver/")
                 return
             
             # Configure Chrome options (NOT headless, use default profile)
@@ -613,21 +614,30 @@ class SotongHDApp(QMainWindow):
             chrome_options.add_argument("--window-size=1024,768")
             chrome_options.add_argument("--log-level=3")
             chrome_options.add_argument("--profile-directory=Default")
+            chrome_options.add_argument("--disable-dev-shm-usage")
+            chrome_options.add_argument("--no-sandbox")
             chrome_options.add_experimental_option('excludeSwitches', ['enable-logging'])
+            chrome_options.add_experimental_option('useAutomationExtension', False)
             
+            logger.info(f"Menggunakan ChromeDriver: {chromedriver_path}")
             logger.info("Membuka Chrome untuk cek update")
             
-            # Initialize Chrome with WebDriver
-            driver = webdriver.Chrome(service=Service(chromedriver_path), options=chrome_options)
+            # Initialize Chrome with WebDriver using embedded chromedriver only
+            service = Service(chromedriver_path)
+            driver = webdriver.Chrome(service=service, options=chrome_options)
             
             # Navigate to Chrome settings help page
             driver.get("chrome://settings/help")
             
             logger.sukses("Chrome berhasil dibuka untuk cek update")
             
+        except FileNotFoundError as e:
+            error_msg = f"ChromeDriver tidak ditemukan: {str(e)}"
+            logger.kesalahan("ChromeDriver file tidak ada", error_msg)
+            QMessageBox.critical(self, "Error", f"{error_msg}\n\nDownload ulang aplikasi atau pastikan folder driver/ lengkap.")
         except Exception as e:
             logger.kesalahan("Gagal membuka Chrome untuk cek update", str(e))
-            QMessageBox.warning(self, "Error", f"Gagal membuka Chrome: {str(e)}")
+            QMessageBox.warning(self, "Error", f"Gagal membuka Chrome: {str(e)}\n\nPastikan Chrome terinstall di sistem.")
     
     # Processing methods
     def process_files(self, file_paths):
