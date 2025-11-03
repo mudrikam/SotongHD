@@ -193,6 +193,14 @@ class SotongHDApp(QMainWindow):
         self.whatsappButton.setStyleSheet("QPushButton {\n  background-color: rgba(161, 161, 161, 0.08);\n  color: rgba(88, 29, 239, 0.7);\n  border-radius: 20px;\n  padding: 8px;\n}\nQPushButton:hover {\n  background-color: rgba(37, 211, 102, 0.8);\n  color: white;\n  border: none;\n}\nQPushButton:pressed {\n  background-color: rgba(37, 211, 102, 1.0);\n}")
         buttons_layout.addWidget(self.whatsappButton)
 
+        # Chrome Update Check button
+        self.chromeUpdateButton = QPushButton(central_widget)
+        self.chromeUpdateButton.setObjectName("chromeUpdateButton")
+        self.chromeUpdateButton.setMinimumSize(40, 40)
+        self.chromeUpdateButton.setToolTip("Check Chrome Updates")
+        self.chromeUpdateButton.setStyleSheet("QPushButton {\n  background-color: rgba(161, 161, 161, 0.08);\n  color: rgba(88, 29, 239, 0.7);\n  border-radius: 20px;\n  padding: 8px;\n}\nQPushButton:hover {\n  background-color: rgba(66, 133, 244, 0.8);\n  color: white;\n  border: none;\n}\nQPushButton:pressed {\n  background-color: rgba(66, 133, 244, 1.0);\n}")
+        buttons_layout.addWidget(self.chromeUpdateButton)
+
         # Format selector layout
         buttons_layout.addStretch()
         format_layout = QHBoxLayout()
@@ -332,6 +340,7 @@ class SotongHDApp(QMainWindow):
         self.openFolderButton = self.findChild(QPushButton, "openFolderButton")
         self.openFilesButton = self.findChild(QPushButton, "openFilesButton")
         self.whatsappButton = self.findChild(QPushButton, "whatsappButton")
+        self.chromeUpdateButton = self.findChild(QPushButton, "chromeUpdateButton")
         self.stopButton = self.findChild(QPushButton, "stopButton")
         
         # Set stopButton to disabled initially (since no processing is running)
@@ -347,6 +356,13 @@ class SotongHDApp(QMainWindow):
                 self.whatsappButton.setIcon(whatsapp_icon)
                 self.whatsappButton.setIconSize(QSize(24, 24))
                 self.whatsappButton.clicked.connect(self.on_whatsapp_button_click)
+            
+            # Chrome Update button with chrome icon
+            chrome_icon = qta.icon('fa5b.chrome')
+            if self.chromeUpdateButton:
+                self.chromeUpdateButton.setIcon(chrome_icon)
+                self.chromeUpdateButton.setIconSize(QSize(24, 24))
+                self.chromeUpdateButton.clicked.connect(self.on_chrome_update_click)
             
             # Open Folder button with folder icon
             folder_icon = qta.icon('fa5s.folder-open')
@@ -372,6 +388,10 @@ class SotongHDApp(QMainWindow):
             if self.whatsappButton:
                 self.whatsappButton.setText("WA")
                 self.whatsappButton.clicked.connect(self.on_whatsapp_button_click)
+            
+            if self.chromeUpdateButton:
+                self.chromeUpdateButton.setText("Chr")
+                self.chromeUpdateButton.clicked.connect(self.on_chrome_update_click)
             
             if self.openFolderButton:
                 self.openFolderButton.clicked.connect(self.on_open_folder_click)
@@ -571,6 +591,43 @@ class SotongHDApp(QMainWindow):
     
     def on_whatsapp_button_click(self):
         open_whatsapp_group()
+    
+    def on_chrome_update_click(self):
+        """Open Chrome browser to check for updates"""
+        try:
+            from selenium import webdriver
+            from selenium.webdriver.chrome.service import Service
+            from selenium.webdriver.chrome.options import Options
+            
+            # Get chromedriver path from image processor
+            chromedriver_path = os.path.join(self.base_dir, "driver", "chromedriver.exe")
+            
+            if not os.path.exists(chromedriver_path):
+                logger.kesalahan("ChromeDriver tidak ditemukan", chromedriver_path)
+                QMessageBox.warning(self, "Error", "ChromeDriver tidak ditemukan")
+                return
+            
+            # Configure Chrome options (NOT headless, use default profile)
+            chrome_options = Options()
+            chrome_options.add_argument("--disable-gpu")
+            chrome_options.add_argument("--window-size=1024,768")
+            chrome_options.add_argument("--log-level=3")
+            chrome_options.add_argument("--profile-directory=Default")
+            chrome_options.add_experimental_option('excludeSwitches', ['enable-logging'])
+            
+            logger.info("Membuka Chrome untuk cek update")
+            
+            # Initialize Chrome with WebDriver
+            driver = webdriver.Chrome(service=Service(chromedriver_path), options=chrome_options)
+            
+            # Navigate to Chrome settings help page
+            driver.get("chrome://settings/help")
+            
+            logger.sukses("Chrome berhasil dibuka untuk cek update")
+            
+        except Exception as e:
+            logger.kesalahan("Gagal membuka Chrome untuk cek update", str(e))
+            QMessageBox.warning(self, "Error", f"Gagal membuka Chrome: {str(e)}")
     
     # Processing methods
     def process_files(self, file_paths):
