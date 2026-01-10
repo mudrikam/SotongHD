@@ -448,7 +448,9 @@ class SotongHDApp(QMainWindow):
     def setup_image_processor(self, base_dir):
         """Initialize the image processor"""
         try:
-            chromedriver_path = os.path.join(base_dir, "driver", "chromedriver.exe")
+            # Cross-platform chromedriver path
+            driver_filename = 'chromedriver.exe' if sys.platform == 'win32' else 'chromedriver'
+            chromedriver_path = os.path.join(base_dir, "driver", driver_filename)
             
             # Create a progress signal instance and connect it to our handler
             self.progress_signal = ProgressSignal()
@@ -603,8 +605,9 @@ class SotongHDApp(QMainWindow):
             # Debug: Print base_dir untuk memastikan path yang benar
             logger.info(f"Base directory: {self.base_dir}")
             
-            # Use embedded chromedriver - MUST be from driver folder only
-            chromedriver_path = os.path.join(self.base_dir, "driver", "chromedriver.exe")
+            # Use embedded chromedriver - cross-platform path
+            driver_filename = 'chromedriver.exe' if sys.platform == 'win32' else 'chromedriver'
+            chromedriver_path = os.path.join(self.base_dir, "driver", driver_filename)
             
             # Convert to absolute path and normalize
             chromedriver_path = os.path.abspath(chromedriver_path)
@@ -622,7 +625,7 @@ class SotongHDApp(QMainWindow):
                 
                 error_msg = f"ChromeDriver tidak ditemukan di: {chromedriver_path}"
                 logger.kesalahan("ChromeDriver tidak ditemukan", chromedriver_path)
-                QMessageBox.critical(self, "Error", f"{error_msg}\n\nPastikan file chromedriver.exe ada di folder driver/")
+                QMessageBox.critical(self, "Error", f"{error_msg}\n\nPastikan file {driver_filename} ada di folder driver/")
                 return
             
             # Configure Chrome options (NOT headless, use default profile)

@@ -36,7 +36,9 @@ class ImageProcessor:
             file_update_signal: Signal untuk melaporkan file yang sedang diproses
             config_manager: Manager for configuration settings
         """
-        self.chromedriver_path = chromedriver_path or os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "driver", "chromedriver.exe")
+        # Cross-platform chromedriver path
+        driver_filename = 'chromedriver.exe' if sys.platform == 'win32' else 'chromedriver'
+        self.chromedriver_path = chromedriver_path or os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "driver", driver_filename)
         self.progress_callback = progress_callback  # Keep for backward compatibility
         self.progress_signal = progress_signal      # New signal-based approach
         self.file_update_signal = file_update_signal  # Signal for file updates
