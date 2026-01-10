@@ -1,9 +1,9 @@
-[![License](https://img.shields.io/github/license/mudrikam/SotongHD)](LICENSE)
-[![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
-[![Code Size](https://img.shields.io/github/languages/code-size/mudrikam/SotongHD)](https://github.com/mudrikam/SotongHD)
-[![Release](https://img.shields.io/github/v/release/mudrikam/SotongHD?include_prereleases)](https://github.com/mudrikam/SotongHD/releases)
-[![Downloads](https://img.shields.io/github/downloads/mudrikam/SotongHD/total)](https://github.com/mudrikam/SotongHD/releases)
-[![Last Commit](https://img.shields.io/github/last-commit/mudrikam/SotongHD)](https://github.com/mudrikam/SotongHD/commits/main)
+[![Downloads](https://img.shields.io/github/downloads/mudrikam/SotongHD/total?style=for-the-badge&logo=github)](https://github.com/mudrikam/SotongHD/releases) [![Release](https://img.shields.io/github/v/release/mudrikam/SotongHD?style=for-the-badge&logo=github)](https://github.com/mudrikam/SotongHD/releases) ![WhatsApp Group](https://img.shields.io/badge/Join%20WhatsApp-Group-25D366?logo=whatsapp&style=for-the-badge&link=https://chat.whatsapp.com/CMQvDxpCfP647kBBA6dRn3) 
+
+### 🎉 Great News  
+## SotongHD is now fully cross-platform.
+
+[![Windows](https://custom-icon-badges.demolab.com/badge/Windows-0078D6?logo=windows11&logoColor=white&style=for-the-badge)](#) [![Linux](https://custom-icon-badges.demolab.com/badge/Linux-FCC624?logo=linux&logoColor=black&style=for-the-badge)](#) [![macOS](https://img.shields.io/badge/macOS-dedede?logo=apple&logoColor=666666&style=for-the-badge)](#)
 
 ![SotongHD Logo](https://raw.githubusercontent.com/mudrikam/SotongHD/main/App/sotong_bg.png)
 
