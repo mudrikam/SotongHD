@@ -448,9 +448,31 @@ class SotongHDApp(QMainWindow):
     def setup_image_processor(self, base_dir):
         """Initialize the image processor"""
         try:
-            # Cross-platform chromedriver path
+            # Cross-platform chromedriver path - use absolute path
             driver_filename = 'chromedriver.exe' if sys.platform == 'win32' else 'chromedriver'
-            chromedriver_path = os.path.join(base_dir, "driver", driver_filename)
+            chromedriver_path = os.path.abspath(os.path.join(base_dir, "driver", driver_filename))
+            
+            # Verify chromedriver exists
+            if not os.path.exists(chromedriver_path):
+                error_msg = f"ChromeDriver not found at: {chromedriver_path}\n"
+                error_msg += f"Base directory: {base_dir}\n"
+                error_msg += "Please run main.py first to download ChromeDriver."
+                logger.kesalahan("ChromeDriver tidak ditemukan", chromedriver_path)
+                QMessageBox.critical(self, "Error", error_msg)
+                return
+            
+            # On Unix-like systems, ensure it's executable
+            if sys.platform != 'win32':
+                import stat
+                current_permissions = os.stat(chromedriver_path).st_mode
+                if not (current_permissions & stat.S_IXUSR):
+                    logger.info(f"Making chromedriver executable: {chromedriver_path}")
+                    try:
+                        os.chmod(chromedriver_path, current_permissions | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+                    except Exception as e:
+                        logger.peringatan(f"Could not set executable permission: {e}")
+            
+            logger.info(f"Using ChromeDriver at: {chromedriver_path}")
             
             # Create a progress signal instance and connect it to our handler
             self.progress_signal = ProgressSignal()
@@ -605,12 +627,9 @@ class SotongHDApp(QMainWindow):
             # Debug: Print base_dir untuk memastikan path yang benar
             logger.info(f"Base directory: {self.base_dir}")
             
-            # Use embedded chromedriver - cross-platform path
+            # Use embedded chromedriver - cross-platform path with absolute path
             driver_filename = 'chromedriver.exe' if sys.platform == 'win32' else 'chromedriver'
-            chromedriver_path = os.path.join(self.base_dir, "driver", driver_filename)
-            
-            # Convert to absolute path and normalize
-            chromedriver_path = os.path.abspath(chromedriver_path)
+            chromedriver_path = os.path.abspath(os.path.join(self.base_dir, "driver", driver_filename))
             
             logger.info(f"Mencari ChromeDriver di: {chromedriver_path}")
             
@@ -627,6 +646,17 @@ class SotongHDApp(QMainWindow):
                 logger.kesalahan("ChromeDriver tidak ditemukan", chromedriver_path)
                 QMessageBox.critical(self, "Error", f"{error_msg}\n\nPastikan file {driver_filename} ada di folder driver/")
                 return
+            
+            # On Unix-like systems, ensure it's executable
+            if sys.platform != 'win32':
+                import stat
+                current_permissions = os.stat(chromedriver_path).st_mode
+                if not (current_permissions & stat.S_IXUSR):
+                    logger.info(f"Making chromedriver executable: {chromedriver_path}")
+                    try:
+                        os.chmod(chromedriver_path, current_permissions | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+                    except Exception as e:
+                        logger.peringatan(f"Could not set executable permission: {e}")
             
             # Configure Chrome options (NOT headless, use default profile)
             chrome_options = Options()

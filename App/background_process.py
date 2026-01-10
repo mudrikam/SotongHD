@@ -37,8 +37,27 @@ class ImageProcessor:
             config_manager: Manager for configuration settings
         """
         # Cross-platform chromedriver path
-        driver_filename = 'chromedriver.exe' if sys.platform == 'win32' else 'chromedriver'
-        self.chromedriver_path = chromedriver_path or os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "driver", driver_filename)
+        if chromedriver_path:
+            self.chromedriver_path = chromedriver_path
+        else:
+            # Fallback: calculate from App directory (this file's parent)
+            driver_filename = 'chromedriver.exe' if sys.platform == 'win32' else 'chromedriver'
+            app_dir = os.path.dirname(os.path.abspath(__file__))
+            base_dir = os.path.dirname(app_dir)
+            self.chromedriver_path = os.path.join(base_dir, "driver", driver_filename)
+        
+        # Verify chromedriver exists and is executable
+        if not os.path.exists(self.chromedriver_path):
+            logger.kesalahan(f"ChromeDriver not found at: {self.chromedriver_path}")
+            raise FileNotFoundError(f"ChromeDriver not found at: {self.chromedriver_path}")
+        
+        # On Unix-like systems, ensure it's executable
+        if sys.platform != 'win32':
+            import stat
+            current_permissions = os.stat(self.chromedriver_path).st_mode
+            if not (current_permissions & stat.S_IXUSR):
+                logger.info(f"Making chromedriver executable: {self.chromedriver_path}")
+                os.chmod(self.chromedriver_path, current_permissions | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
         self.progress_callback = progress_callback  # Keep for backward compatibility
         self.progress_signal = progress_signal      # New signal-based approach
         self.file_update_signal = file_update_signal  # Signal for file updates
@@ -764,6 +783,22 @@ class ImageProcessor:
             except TypeError:
                 # Fallback for selenium versions that don't accept desired_capabilities here
                 driver = webdriver.Chrome(service=Service(self.chromedriver_path), options=chrome_options)
+            except Exception as e:
+                if 'cannot find Chrome binary' in str(e) or 'chrome not reachable' in str(e).lower():
+                    error_msg = "Chrome browser not found! Please install Google Chrome first.\n"
+                    if sys.platform == 'darwin':  # macOS
+                        error_msg += "Install via: brew install --cask google-chrome\n"
+                        error_msg += "Or download from: https://www.google.com/chrome/"
+                    elif sys.platform == 'linux':
+                        error_msg += "Install via: sudo apt install google-chrome-stable (Ubuntu/Debian)\n"
+                        error_msg += "Or download from: https://www.google.com/chrome/"
+                    logger.kesalahan("Chrome browser tidak ditemukan", error_msg)
+                    result["error"] = error_msg
+                    result["end_time"] = datetime.now()
+                    result["duration"] = (result["end_time"] - result["start_time"]).total_seconds()
+                    return result
+                else:
+                    raise
             
             try:
                 # Buka halaman Picsart AI Image Enhancer
