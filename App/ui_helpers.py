@@ -1,5 +1,5 @@
 import os
-from PySide6.QtWidgets import QLabel, QSizePolicy, QCheckBox
+from PySide6.QtWidgets import QLabel, QSizePolicy, QCheckBox, QPushButton
 from PySide6.QtGui import QPixmap, QPainter, QPainterPath, QIcon
 from PySide6.QtCore import Qt, QSize, QRectF
 from .logger import logger
@@ -127,56 +127,54 @@ def setup_drag_drop_style(frame, highlighted=False):
 def setup_format_toggle(app, config_manager):
     """Set up format toggle UI elements and connect signals"""
     # Get UI elements
-    format_toggle = app.findChild(QCheckBox, "formatToggle")
-    format_label_png = app.findChild(QLabel, "formatLabel")
-    format_label_jpg = app.findChild(QLabel, "formatLabel2")
+    format_toggle = app.findChild(QPushButton, "formatToggle")
     
-    if not all([format_toggle, format_label_png, format_label_jpg]):
-        logger.peringatan("Format toggle UI elements not found")
+    if not format_toggle:
+        logger.peringatan("Format toggle UI element not found")
         return
     
-    # Set toggle state based on config
-    current_format = config_manager.get_output_format()
-    format_toggle.setChecked(current_format == "jpg")
+    # Make it checkable
+    format_toggle.setCheckable(True)
     
-    # Update label colors based on initial state
-    update_format_labels(format_label_png, format_label_jpg, current_format == "jpg")
+    # Set initial state based on config
+    current_format = config_manager.get_output_format()
+    is_jpg = current_format == "jpg"
+    format_toggle.setChecked(is_jpg)
+    format_toggle.setText("JPG" if is_jpg else "PNG")
+    
+    # Set stylesheet for toggle appearance
+    format_toggle.setStyleSheet("""
+        QPushButton {
+            border-radius: 15px;
+            border: none;
+            width: 60px;
+            height: 30px;
+            background-color: rgb(88, 29, 239);
+            color: white;
+            font-weight: bold;
+            font-size: 12px;
+        }
+        QPushButton:checked {
+            background-color: rgb(192, 57, 43);
+        }
+    """)
     
     # Connect toggle signal
-    format_toggle.stateChanged.connect(
-        lambda state: on_format_toggle_changed(state, format_label_png, format_label_jpg, config_manager)
+    format_toggle.toggled.connect(
+        lambda checked: on_format_toggle_changed(checked, format_toggle, config_manager)
     )
     
-    return format_toggle, format_label_png, format_label_jpg
+    return format_toggle
 
-def update_format_labels(label_png, label_jpg, is_jpg):
-    """Update format label colors based on the selected format"""
-    if is_jpg:
-        # JPG mode - JPG is highlighted and PNG is dimmed
-        if label_png:
-            label_png.setStyleSheet("color: rgba(88, 29, 239, 0.5);")
-        if label_jpg:
-            label_jpg.setStyleSheet("color: rgba(52, 152, 219, 1.0);")
-    else:
-        # PNG mode - PNG is highlighted and JPG is dimmed
-        if label_png:
-            label_png.setStyleSheet("color: rgba(88, 29, 239, 1.0);")
-        if label_jpg:
-            label_jpg.setStyleSheet("color: rgba(52, 152, 219, 0.5);")
-
-def on_format_toggle_changed(state, label_png, label_jpg, config_manager):
+def on_format_toggle_changed(checked, format_toggle, config_manager):
     """Handle format toggle state change"""
-    # Qt.Checked is 2, so let's explicitly check against that
-    is_jpg = (state == 2)  # Qt.Checked is 2 in PySide6
-    
-    # Debug output to see what's happening
-    print(f"Toggle state changed: state={state}, is_jpg={is_jpg}")
+    is_jpg = checked
     
     # Update the config with the new format
     config_manager.set_output_format("jpg" if is_jpg else "png")
     
-    # Update label colors
-    update_format_labels(label_png, label_jpg, is_jpg)
+    # Update toggle text
+    format_toggle.setText("JPG" if is_jpg else "PNG")
     
     # Log the format change
     logger.info(f"Output format changed to: {'JPG' if is_jpg else 'PNG'}")

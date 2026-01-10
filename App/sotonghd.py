@@ -205,22 +205,12 @@ class SotongHDApp(QMainWindow):
         buttons_layout.addStretch()
         format_layout = QHBoxLayout()
         format_layout.setSpacing(4)
-        self.formatLabel = QLabel("PNG", central_widget)
-        self.formatLabel.setObjectName("formatLabel")
-        self.formatLabel.setStyleSheet("color: rgb(85, 0, 255);")
-        format_layout.addWidget(self.formatLabel)
 
-        self.formatToggle = QCheckBox(central_widget)
+        self.formatToggle = QPushButton(central_widget)
         self.formatToggle.setObjectName("formatToggle")
-        self.formatToggle.setMinimumSize(60, 24)
-        self.formatToggle.setMaximumSize(60, 24)
-        self.formatToggle.setStyleSheet("QCheckBox { spacing: 0px; }\nQCheckBox::indicator { width: 60px; height: 24px; border-radius: 12px; background-color: rgba(88, 29, 239, 0.3);}\nQCheckBox::indicator:checked { background-color: rgba(52, 152, 219, 0.5);} ")
+        self.formatToggle.setMinimumSize(60, 30)
+        self.formatToggle.setMaximumSize(60, 30)
         format_layout.addWidget(self.formatToggle)
-
-        self.formatLabel2 = QLabel("JPG", central_widget)
-        self.formatLabel2.setObjectName("formatLabel2")
-        self.formatLabel2.setStyleSheet("color: rgb(0, 125, 139);")
-        format_layout.addWidget(self.formatLabel2)
 
         buttons_layout.addLayout(format_layout)
         buttons_layout.addStretch()
@@ -302,9 +292,7 @@ class SotongHDApp(QMainWindow):
             self.setup_high_res_icon()
         
         # Set up format toggle
-        self.formatToggle = self.findChild(QCheckBox, "formatToggle")
-        self.formatLabel = self.findChild(QLabel, "formatLabel")
-        self.formatLabel2 = self.findChild(QLabel, "formatLabel2")
+        self.formatToggle = self.findChild(QPushButton, "formatToggle")
 
         # New controls: batch spinner and browser option checkboxes
         # These were created in __init__; fall back to findChild for robustness
@@ -332,7 +320,7 @@ class SotongHDApp(QMainWindow):
             pass
         
         # Set up format toggle using helper function
-        self.formatToggle, self.formatLabel, self.formatLabel2 = setup_format_toggle(self, self.config_manager)
+        self.formatToggle = setup_format_toggle(self, self.config_manager)
     
     def setup_buttons(self):
         """Setup buttons and their icons"""
