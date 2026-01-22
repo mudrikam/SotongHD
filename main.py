@@ -5,6 +5,7 @@ import requests
 import zipfile
 import shutil
 import re
+import subprocess
 
 def get_platform_info():
     """Detect current platform and return platform key and driver filename.
@@ -64,6 +65,55 @@ def download_chromedriver():
 
     # Detect remote stable URL (may raise)
     remote_url = get_chromedriver_link(platform_key)
+
+    # Attempt to detect local Chrome version and prefer matching ChromeDriver major version
+    def get_local_chrome_version():
+        """Return tuple version (major, minor, build, patch) or None if detection fails"""
+        try:
+            candidates = []
+            if sys.platform == 'win32':
+                candidates.extend([
+                    os.path.join(os.environ.get('PROGRAMFILES', r'C:\Program Files'), 'Google', 'Chrome', 'Application', 'chrome.exe'),
+                    os.path.join(os.environ.get('PROGRAMFILES(X86)', r'C:\Program Files (x86)'), 'Google', 'Chrome', 'Application', 'chrome.exe'),
+                ])
+            chrome_on_path = shutil.which('chrome') or shutil.which('google-chrome') or shutil.which('chromium')
+            if chrome_on_path:
+                candidates.append(chrome_on_path)
+            for exe in candidates:
+                if exe and os.path.exists(exe):
+                    try:
+                        out = subprocess.check_output([exe, '--version'], stderr=subprocess.STDOUT, text=True, timeout=5)
+                        m = re.search(r'(\d+\.\d+\.\d+\.\d+)', out)
+                        if m:
+                            return tuple(int(x) for x in m.group(1).split('.'))
+                    except Exception:
+                        continue
+        except Exception:
+            pass
+        return None
+
+    def get_chromedriver_link_for_major(platform_key, major):
+        PAGE_URL = 'https://googlechromelabs.github.io/chrome-for-testing/'
+        resp_major = requests.get(PAGE_URL, timeout=10)
+        resp_major.raise_for_status()
+        html_major = resp_major.text
+        pattern_major = re.compile(
+            rf'https://storage\.googleapis\.com/[A-Za-z0-9_\-./]*/{major}\.[0-9\.]*?/{re.escape(platform_key)}/chromedriver-{re.escape(platform_key)}\.zip'
+        )
+        m_major = pattern_major.search(html_major)
+        if m_major:
+            return m_major.group(0)
+        return None
+
+    local_chrome_ver = get_local_chrome_version()
+    if local_chrome_ver:
+        local_major = local_chrome_ver[0]
+        alt_url = get_chromedriver_link_for_major(platform_key, local_major)
+        if alt_url:
+            print(f'Using ChromeDriver matching local Chrome major version: {local_major}')
+            remote_url = alt_url
+        else:
+            print(f'No ChromeDriver found for local Chrome major {local_major}; defaulting to stable remote URL')
 
     sep = '-' * 40
     print(sep)
