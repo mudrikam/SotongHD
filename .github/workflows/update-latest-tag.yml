@@ -44,8 +44,81 @@ jobs:
               }
             }
 
+      - name: Wait for related workflow runs to complete
+        if: ${{ github.event_name == 'workflow_run' }}
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const headSha = context.payload.workflow_run && context.payload.workflow_run.head_sha;
+            if (!headSha) {
+              core.setOutput('ready','false');
+              throw new Error('No head SHA found on workflow_run payload');
+            }
+
+            const required = [ 'Create Release ZIPs', 'Build Executable Files' ];
+            const maxAttempts = 40; // total wait up to ~10 minutes (40 * 15s)
+            const delayMs = 15000;
+            const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
+
+            async function checkAll() {
+              const runsResp = await github.rest.actions.listWorkflowRunsForRepo({ owner, repo, per_page: 100 });
+              const runs = runsResp.data.workflow_runs || [];
+
+              const result = {};
+              for (const name of required) {
+                const found = runs.find(r => r.name === name && r.head_sha === headSha);
+                if (!found) {
+                  result[name] = { found: false };
+                } else {
+                  result[name] = { found: true, status: found.status, conclusion: found.conclusion };
+                }
+              }
+              return result;
+            }
+
+            let attempts = 0;
+            while (attempts < maxAttempts) {
+              const res = await checkAll();
+              let allSuccess = true;
+              let anyFailed = false;
+
+              for (const name of required) {
+                const s = res[name];
+                if (!s || !s.found) {
+                  allSuccess = false;
+                } else if (s.conclusion !== 'success') {
+                  allSuccess = false;
+                  if (s.conclusion && ['failure','cancelled','timed_out'].includes(s.conclusion)) {
+                    anyFailed = true;
+                  }
+                }
+              }
+
+              if (allSuccess) {
+                core.setOutput('ready','true');
+                console.log('All required workflows completed successfully.');
+                break;
+              }
+
+              if (anyFailed) {
+                core.setOutput('ready','false');
+                throw new Error('One of the required workflows completed with failure/cancelled. Aborting to avoid partial release.');
+              }
+
+              attempts++;
+              console.log(`Attempt ${attempts}/${maxAttempts} - required workflows not yet all successful, waiting ${delayMs}ms...`);
+              await sleep(delayMs);
+            }
+
+            if (attempts >= maxAttempts) {
+              core.setOutput('ready','false');
+              throw new Error('Timeout waiting for required workflow runs to complete successfully.');
+            }
+
       - name: Download workflow_run artifacts
-        if: ${{ github.event_name == 'workflow_run' && steps.find_artifact.outputs.found == 'true' }}
+        if: ${{ github.event_name == 'workflow_run' && steps.find_artifact.outputs.found == 'true' && steps.wait_for_related_workflow_runs_to_complete.outputs.ready == 'true' }}
         run: |
           echo "Downloading artifacts..."
           echo '${{ steps.find_artifact.outputs.artifacts }}' > artifacts.json
