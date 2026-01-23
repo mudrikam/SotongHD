@@ -2,7 +2,7 @@ name: Update 'latest' Tag
 
 on:
   workflow_run:
-    workflows: [ "Create Release ZIPs", "Build Executable Files" ]
+    workflows: [ "Create Release ZIPs" ]
     types: [ completed ]
   release:
     types: [ published, edited ]
@@ -20,7 +20,7 @@ jobs:
     if: ${{ github.event_name == 'release' || github.event_name == 'workflow_dispatch' || (github.event_name == 'workflow_run' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.conclusion == 'success') }}
     runs-on: ubuntu-latest
     steps:
-      - name: Find artifacts from workflow_run
+      - name: Find artifact from workflow_run
         if: ${{ github.event_name == 'workflow_run' }}
         id: find_artifact
         uses: actions/github-script@v6
@@ -31,121 +31,24 @@ jobs:
             const run_id = context.payload.workflow_run && context.payload.workflow_run.id;
             if (!run_id) {
               core.setOutput('found','false');
-              core.setOutput('artifacts','[]');
             } else {
               const artifacts = await github.rest.actions.listWorkflowRunArtifacts({ owner, repo, run_id });
-              if (!artifacts.data.artifacts || artifacts.data.artifacts.length === 0) {
+              const art = artifacts.data.artifacts.find(a => a.name === 'SotongHDx86_64');
+              if (!art) {
                 core.setOutput('found','false');
-                core.setOutput('artifacts','[]');
               } else {
-                const artifactsList = artifacts.data.artifacts.map(a => ({ name: a.name, archive_download_url: a.archive_download_url }));
                 core.setOutput('found','true');
-                core.setOutput('artifacts', JSON.stringify(artifactsList));
+                core.setOutput('archive_download_url', art.archive_download_url);
+                core.setOutput('artifact_id', String(art.id));
               }
             }
 
-      - name: Wait for related workflow runs to complete
-        id: wait_for_related_workflow_runs_to_complete
-        if: ${{ github.event_name == 'workflow_run' }}
-        uses: actions/github-script@v6
-        with:
-          script: |
-            const owner = context.repo.owner;
-            const repo = context.repo.repo;
-            const headSha = context.payload.workflow_run && context.payload.workflow_run.head_sha;
-            if (!headSha) {
-              core.setOutput('ready','false');
-              throw new Error('No head SHA found on workflow_run payload');
-            }
-
-            const required = [ 'Create Release ZIPs', 'Build Executable Files' ];
-            const maxAttempts = 40;
-            const delayMs = 15000;
-            const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
-
-            async function checkAll() {
-              const runsResp = await github.rest.actions.listWorkflowRunsForRepo({ owner, repo, per_page: 100 });
-              const runs = runsResp.data.workflow_runs || [];
-
-              const result = {};
-              for (const name of required) {
-                const found = runs.find(r => r.name === name && r.head_sha === headSha);
-                if (!found) {
-                  result[name] = { found: false };
-                } else {
-                  result[name] = { found: true, status: found.status, conclusion: found.conclusion };
-                }
-              }
-              return result;
-            }
-
-            let attempts = 0;
-            while (attempts < maxAttempts) {
-              const res = await checkAll();
-              let allSuccess = true;
-              let anyFailed = false;
-
-              for (const name of required) {
-                const s = res[name];
-                if (!s || !s.found) {
-                  allSuccess = false;
-                } else if (s.conclusion !== 'success') {
-                  allSuccess = false;
-                  if (s.conclusion && ['failure','cancelled','timed_out'].includes(s.conclusion)) {
-                    anyFailed = true;
-                  }
-                }
-              }
-
-              if (allSuccess) {
-                core.setOutput('ready','true');
-                console.log('All required workflows completed successfully.');
-                break;
-              }
-
-              if (anyFailed) {
-                core.setOutput('ready','false');
-                throw new Error('One of the required workflows completed with failure/cancelled. Aborting to avoid partial release.');
-              }
-
-              attempts++;
-              console.log(`Attempt ${attempts}/${maxAttempts} - required workflows not yet all successful, waiting ${delayMs}ms...`);
-              await sleep(delayMs);
-            }
-
-            if (attempts >= maxAttempts) {
-              core.setOutput('ready','false');
-              throw new Error('Timeout waiting for required workflow runs to complete successfully.');
-            }
-
-      - name: Download workflow_run artifacts
-        id: download_artifacts
-        if: ${{ github.event_name == 'workflow_run' && steps.find_artifact.outputs.found == 'true' && steps.wait_for_related_workflow_runs_to_complete.outputs.ready == 'true' }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Download workflow_run artifact
+        if: ${{ github.event_name == 'workflow_run' && steps.find_artifact.outputs.found == 'true' }}
         run: |
-          echo "Downloading artifacts..."
-          echo '${{ steps.find_artifact.outputs.artifacts }}' > artifacts.json
-          python3 - <<'PY'
-          import json, os, subprocess, sys
-          with open('artifacts.json') as f:
-              arts = json.load(f)
-          token = os.environ.get('GITHUB_TOKEN')
-          if not token:
-              print('ERROR: GITHUB_TOKEN not set in environment')
-              sys.exit(2)
-          for a in arts:
-              name = a['name']
-              url = a['archive_download_url']
-              filename = f"{name}.zip"
-              print('Downloading', name, 'from', url)
-              try:
-                  subprocess.check_call(['curl','-f','-L','-H',f'Authorization: Bearer {token}', '-o', filename, url])
-              except Exception as e:
-                  print('Failed to download', name, e)
-                  sys.exit(3)
-              subprocess.call(['unzip','-o', filename])
-          PY
+          echo "Downloading artifact..."
+          curl -L -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" -o artifact.zip "${{ steps.find_artifact.outputs.archive_download_url }}"
+          unzip -o artifact.zip || true
 
       - name: Update or create refs/tags/latest (using PAT if available)
         uses: actions/github-script@v6
@@ -156,6 +59,7 @@ jobs:
             const owner = context.repo.owner;
             const repo = context.repo.repo;
 
+            // Use PAT if provided to perform release/tag operations (events created by a PAT will trigger other workflows)
             const pat = process.env.PAT_TRIGGER;
             let octokit = github;
             if (pat) {
@@ -170,11 +74,13 @@ jobs:
             let sha = '';
 
             if (context.eventName === 'push') {
+              // On push to main, use the pushed commit as the source
               sha = context.payload.after;
               console.log(`Running on push event. Using push SHA: ${sha}`);
             } else if (context.eventName === 'workflow_run') {
+              // On workflow_run (triggered by Create Release ZIPs), use the head SHA of the workflow run
               sha = (context.payload && context.payload.workflow_run && context.payload.workflow_run.head_sha) ? context.payload.workflow_run.head_sha : '';
-
+              // fallback to head_commit id if available
               if (!sha && context.payload && context.payload.workflow_run && context.payload.workflow_run.head_commit) {
                 sha = context.payload.workflow_run.head_commit.id;
               }
@@ -194,18 +100,22 @@ jobs:
 
               console.log(`Using source tag: ${sourceTag}`);
 
+              // Resolve tag -> commit SHA
               try {
                 const ref = await github.rest.git.getRef({ owner, repo, ref: `tags/${sourceTag}` });
                 const obj = ref.data.object;
                 if (obj.type === 'tag') {
+                  // annotated tag -> resolve to commit
                   const tagObj = await github.rest.git.getTag({ owner, repo, tag_sha: obj.sha });
                   sha = tagObj.data.object.sha;
                 } else {
+                  // lightweight tag
                   sha = obj.sha;
                 }
               } catch (err) {
-                const tagsResp = await github.rest.repos.listTags({ owner, repo, per_page: 100 });
-                const found = tagsResp.data.find(t => t.name === sourceTag);
+                // fallback: list tags and find commit sha
+                const list = await github.rest.repos.listTags({ owner, repo, per_page: 100 });
+                const found = list.data.find(t => t.name === sourceTag);
                 if (!found) throw new Error(`Failed to resolve tag ${sourceTag}: ${err.message}`);
                 sha = found.commit.sha;
               }
@@ -213,6 +123,7 @@ jobs:
               console.log(`Resolved SHA: ${sha}`);
             }
 
+            // Update refs/tags/latest (force) or create if missing using octokit (PAT if available)
             try {
               await octokit.rest.git.updateRef({ owner, repo, ref: 'tags/latest', sha, force: true });
               console.log('Updated refs/tags/latest (via octokit)');
@@ -221,6 +132,7 @@ jobs:
               console.log('Created refs/tags/latest (via octokit)');
             }
 
+            // Confirm the refs/tags/latest points to the expected SHA and print hash
             try {
               const latestRef = await octokit.rest.git.getRef({ owner, repo, ref: 'tags/latest' });
               const latestSha = latestRef.data.object.sha;
@@ -228,42 +140,57 @@ jobs:
               console.log(`refs/tags/latest now points to: ${latestSha}`);
               console.log(`refs/tags/latest short: ${latestSha.substring(0,7)}`);
 
+              // Update or create a Release for tag 'latest' and write the resolved SHA into its body (do NOT copy assets)
               try {
                 let release = null;
                 try {
                   release = await octokit.rest.repos.getReleaseByTag({ owner, repo, tag: 'latest' });
                   console.log(`Found existing release id=${release.data.id} for tag 'latest'`);
 
-                  await octokit.rest.repos.updateRelease({ owner, repo, release_id: release.data.id, name: 'Download SotongHD' });
-                  console.log('Ensured release name is "Download SotongHD" (via octokit)');
+                  const oldBody = release.data.body || '';
+                  const line = `**latest tag commit:** ${sha} (short: ${sha.substring(0,7)})`;
+
+                  // replace existing line if any, otherwise append
+                  const newBody = oldBody.replace(/\*\*latest tag commit:\*\*.*(?:\r\n|\n)?/i, `${line}\n`);
+                  const finalBody = (newBody === oldBody) ? (oldBody + `\n\n${line}`) : newBody;
+
+                  await octokit.rest.repos.updateRelease({ owner, repo, release_id: release.data.id, name: 'Download SotongHD', body: finalBody });
+                  console.log('Updated release "Download SotongHD" body for tag latest (via octokit)');
                 } catch (getErr) {
-                  const createResp = await octokit.rest.repos.createRelease({ owner, repo, tag_name: 'latest', name: 'Download SotongHD', draft: false, prerelease: false, target_commitish: sha });
+                  // If not found, create a release with tag 'latest' (assets should be uploaded by the build job)
+                  const createResp = await octokit.rest.repos.createRelease({ owner, repo, tag_name: 'latest', name: 'Download SotongHD', body: `**latest tag commit:** ${sha} (short: ${sha.substring(0,7)})`, draft: false, prerelease: false, target_commitish: sha });
                   console.log(`Created release 'Download SotongHD' for tag 'latest' id=${createResp.data.id} (via octokit)`);
                   release = { data: createResp.data };
                 }
 
+                // Try to upload SotongHDx86_64.zip if present
                 try {
                   const fs = require('fs');
-                  const files = fs.readdirSync('.');
-                  const candidates = files.filter(f => /SotongHD.*\.(zip|exe|tar\.xz)$/.test(f));
-                  if (candidates.length === 0) {
-                    console.log('No SotongHD release artifacts found to upload.');
-                  } else {
+                  const path = './SotongHDx86_64.zip';
+                  if (fs.existsSync(path)) {
                     const release_id = release.data.id;
-                    for (const f of candidates) {
-                      const assets = await octokit.rest.repos.listReleaseAssets({ owner, repo, release_id });
-                      const oldAsset = assets.data.find(a => a.name === f);
-                      if (oldAsset) {
-                        await octokit.rest.repos.deleteReleaseAsset({ owner, repo, asset_id: oldAsset.id });
-                        console.log(`Deleted existing asset id=${oldAsset.id}`);
-                      }
 
-                      await octokit.rest.repos.uploadReleaseAsset({ owner, repo, release_id, name: f, data: fs.readFileSync(f) });
-                      console.log(`Uploaded asset ${f} to release 'Download SotongHD' id=${release_id}`);
+                    // delete existing asset with same name if present
+                    const assets = await octokit.rest.repos.listReleaseAssets({ owner, repo, release_id });
+                    const oldAsset = assets.data.find(a => a.name === 'SotongHDx86_64.zip');
+                    if (oldAsset) {
+                      await octokit.rest.repos.deleteReleaseAsset({ owner, repo, asset_id: oldAsset.id });
+                      console.log(`Deleted existing asset id=${oldAsset.id}`);
                     }
+
+                    const uploadResp = await octokit.rest.repos.uploadReleaseAsset({
+                      owner,
+                      repo,
+                      release_id,
+                      name: 'SotongHDx86_64.zip',
+                      data: fs.readFileSync(path)
+                    });
+                    console.log(`Uploaded asset SotongHDx86_64.zip to release 'Download SotongHD' id=${release_id}`);
+                  } else {
+                    console.log('No SotongHDx86_64.zip file present to upload.');
                   }
                 } catch (err) {
-                  console.log('Warning: failed to upload artifact(s) to release:', err.message);
+                  console.log('Warning: failed to upload asset to release latest:', err.message);
                 }
 
               } catch (err) {
