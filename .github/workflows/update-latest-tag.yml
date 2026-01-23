@@ -38,9 +38,9 @@ jobs:
                 core.setOutput('found','false');
                 core.setOutput('artifacts','[]');
               } else {
-                const list = artifacts.data.artifacts.map(a => ({ name: a.name, archive_download_url: a.archive_download_url }));
+                const artifactsList = artifacts.data.artifacts.map(a => ({ name: a.name, archive_download_url: a.archive_download_url }));
                 core.setOutput('found','true');
-                core.setOutput('artifacts', JSON.stringify(list));
+                core.setOutput('artifacts', JSON.stringify(artifactsList));
               }
             }
 
@@ -193,9 +193,8 @@ jobs:
                   sha = obj.sha;
                 }
               } catch (err) {
-                const list = await github.rest.repos.listTags({ owner, repo, per_page: 100 });
-                const list = await github.rest.repos.listTags({ owner, repo, per_page: 100 });
-                const found = list.data.find(t => t.name === sourceTag);
+                const tagsResp = await github.rest.repos.listTags({ owner, repo, per_page: 100 });
+                const found = tagsResp.data.find(t => t.name === sourceTag);
                 if (!found) throw new Error(`Failed to resolve tag ${sourceTag}: ${err.message}`);
                 sha = found.commit.sha;
               }
