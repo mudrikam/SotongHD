@@ -154,12 +154,12 @@ jobs:
                   const newBody = oldBody.replace(/\*\*latest tag commit:\*\*.*(?:\r\n|\n)?/i, `${line}\n`);
                   const finalBody = (newBody === oldBody) ? (oldBody + `\n\n${line}`) : newBody;
 
-                  await octokit.rest.repos.updateRelease({ owner, repo, release_id: release.data.id, body: finalBody });
-                  console.log('Updated release body for tag latest (via octokit)');
+                  await octokit.rest.repos.updateRelease({ owner, repo, release_id: release.data.id, name: 'Download SotongHD', body: finalBody });
+                  console.log('Updated release "Download SotongHD" body for tag latest (via octokit)');
                 } catch (getErr) {
                   // If not found, create a release with tag 'latest' (assets should be uploaded by the build job)
-                  const createResp = await octokit.rest.repos.createRelease({ owner, repo, tag_name: 'latest', name: 'latest', body: `**latest tag commit:** ${sha} (short: ${sha.substring(0,7)})`, draft: false, prerelease: false, target_commitish: sha });
-                  console.log(`Created release for tag 'latest' id=${createResp.data.id} (via octokit)`);
+                  const createResp = await octokit.rest.repos.createRelease({ owner, repo, tag_name: 'latest', name: 'Download SotongHD', body: `**latest tag commit:** ${sha} (short: ${sha.substring(0,7)})`, draft: false, prerelease: false, target_commitish: sha });
+                  console.log(`Created release 'Download SotongHD' for tag 'latest' id=${createResp.data.id} (via octokit)`);
                   release = { data: createResp.data };
                 }
 
@@ -185,7 +185,7 @@ jobs:
                       name: 'SotongHDx86_64.zip',
                       data: fs.readFileSync(path)
                     });
-                    console.log(`Uploaded asset SotongHDx86_64.zip to release latest id=${release_id}`);
+                    console.log(`Uploaded asset SotongHDx86_64.zip to release 'Download SotongHD' id=${release_id}`);
                   } else {
                     console.log('No SotongHDx86_64.zip file present to upload.');
                   }
