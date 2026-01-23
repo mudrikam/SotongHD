@@ -17,13 +17,10 @@ jobs:
       
       - name: Create ZIP file
         run: |
-          # Create temporary directory for zipping
           mkdir -p temp_zip
 
-          # Copy all files except .git directory
           rsync -av --exclude='.git' --exclude='temp_zip' ./ temp_zip/
 
-          # Create single ZIP file with the repository content
           cd temp_zip
           zip -r ../SotongHDx86_64.zip . -x "*.git*"
           cd ..

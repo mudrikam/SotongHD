@@ -47,9 +47,7 @@ jobs:
 
       - name: Build portable (one-folder) - suitable for "portable" ZIP
         run: |
-          # PyInstaller on Windows: do NOT embed dynamic driver; the app should download/update driver at runtime
           pyinstaller --clean --noconfirm --onedir --name ${env:APP_NAME}-portable-${env:TARGET} main.py
-          # Ensure driver folder exists inside the portable dist so runtime updater can place files
           mkdir -Force .\\dist\\${env:APP_NAME}-portable-${env:TARGET}\\driver
           New-Item -ItemType File -Path .\\dist\\${env:APP_NAME}-portable-${env:TARGET}\\driver\\.keep -Force
 
@@ -59,21 +57,19 @@ jobs:
 
       - name: Build single-file exe (onefile)
         run: |
-          # For single-file exe we do not embed the dynamic driver. The exe extracts to a temp folder at runtime,
-          # so persistent driver updates should use the portable folder variant or a separate updater.
           pyinstaller --clean --noconfirm --onefile --name ${env:APP_NAME}-single-${env:TARGET} main.py
 
       - name: Collect artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: ${env:APP_NAME}-single-windows-${env:TARGET}
-          path: .\dist\${env:APP_NAME}-single-${env:TARGET}.exe
+          name: ${{ env.APP_NAME }}-single-windows-${{ env.TARGET }}
+          path: dist/${{ env.APP_NAME }}-single-${{ env.TARGET }}.exe
 
       - name: Upload portable artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${env:APP_NAME}-portable-windows-${env:TARGET}
-          path: ${env:APP_NAME}-portable-${env:TARGET}.zip
+          name: ${{ env.APP_NAME }}-portable-windows-${{ env.TARGET }}
+          path: ${{ env.APP_NAME }}-portable-${{ env.TARGET }}.zip
 
       - name: Upload artifacts to Release (on release event)
         if: github.event_name == 'release'
@@ -103,9 +99,7 @@ jobs:
 
       - name: Build portable (one-folder) for Linux
         run: |
-          # PyInstaller on Linux: do NOT embed dynamic driver; app should download/update driver at runtime
           pyinstaller --clean --noconfirm --onedir --name ${APP_NAME}-portable-${TARGET} main.py
-          # Ensure driver folder exists inside the portable dist so runtime updater can place files
           mkdir -p dist/${APP_NAME}-portable-${TARGET}/driver
           touch dist/${APP_NAME}-portable-${TARGET}/driver/.keep
 
@@ -116,8 +110,8 @@ jobs:
       - name: Upload Linux portable artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${APP_NAME}-portable-linux-${TARGET}
-          path: ${APP_NAME}-portable-${TARGET}.tar.xz
+          name: ${{ env.APP_NAME }}-portable-linux-${{ env.TARGET }}
+          path: ${{ env.APP_NAME }}-portable-${{ env.TARGET }}.tar.xz
 
   notes:
     name: Notes for maintainers

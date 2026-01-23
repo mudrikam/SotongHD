@@ -58,7 +58,7 @@ jobs:
             }
 
             const required = [ 'Create Release ZIPs', 'Build Executable Files' ];
-            const maxAttempts = 40; // total wait up to ~10 minutes (40 * 15s)
+            const maxAttempts = 40;
             const delayMs = 15000;
             const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
 
@@ -145,7 +145,6 @@ jobs:
             const owner = context.repo.owner;
             const repo = context.repo.repo;
 
-            // Use PAT if provided to perform release/tag operations (events created by a PAT will trigger other workflows)
             const pat = process.env.PAT_TRIGGER;
             let octokit = github;
             if (pat) {
@@ -160,13 +159,11 @@ jobs:
             let sha = '';
 
             if (context.eventName === 'push') {
-              // On push to main, use the pushed commit as the source
               sha = context.payload.after;
               console.log(`Running on push event. Using push SHA: ${sha}`);
             } else if (context.eventName === 'workflow_run') {
-              // On workflow_run (triggered by Create Release ZIPs), use the head SHA of the workflow run
               sha = (context.payload && context.payload.workflow_run && context.payload.workflow_run.head_sha) ? context.payload.workflow_run.head_sha : '';
-              // fallback to head_commit id if available
+
               if (!sha && context.payload && context.payload.workflow_run && context.payload.workflow_run.head_commit) {
                 sha = context.payload.workflow_run.head_commit.id;
               }
@@ -186,20 +183,17 @@ jobs:
 
               console.log(`Using source tag: ${sourceTag}`);
 
-              // Resolve tag -> commit SHA
               try {
                 const ref = await github.rest.git.getRef({ owner, repo, ref: `tags/${sourceTag}` });
                 const obj = ref.data.object;
                 if (obj.type === 'tag') {
-                  // annotated tag -> resolve to commit
                   const tagObj = await github.rest.git.getTag({ owner, repo, tag_sha: obj.sha });
                   sha = tagObj.data.object.sha;
                 } else {
-                  // lightweight tag
                   sha = obj.sha;
                 }
               } catch (err) {
-                // fallback: list tags and find commit sha
+                const list = await github.rest.repos.listTags({ owner, repo, per_page: 100 });
                 const list = await github.rest.repos.listTags({ owner, repo, per_page: 100 });
                 const found = list.data.find(t => t.name === sourceTag);
                 if (!found) throw new Error(`Failed to resolve tag ${sourceTag}: ${err.message}`);
@@ -209,7 +203,6 @@ jobs:
               console.log(`Resolved SHA: ${sha}`);
             }
 
-            // Update refs/tags/latest (force) or create if missing using octokit (PAT if available)
             try {
               await octokit.rest.git.updateRef({ owner, repo, ref: 'tags/latest', sha, force: true });
               console.log('Updated refs/tags/latest (via octokit)');
@@ -218,7 +211,6 @@ jobs:
               console.log('Created refs/tags/latest (via octokit)');
             }
 
-            // Confirm the refs/tags/latest points to the expected SHA and print hash
             try {
               const latestRef = await octokit.rest.git.getRef({ owner, repo, ref: 'tags/latest' });
               const latestSha = latestRef.data.object.sha;
@@ -226,30 +218,20 @@ jobs:
               console.log(`refs/tags/latest now points to: ${latestSha}`);
               console.log(`refs/tags/latest short: ${latestSha.substring(0,7)}`);
 
-              // Update or create a Release for tag 'latest' and write the resolved SHA into its body (do NOT copy assets)
               try {
                 let release = null;
                 try {
                   release = await octokit.rest.repos.getReleaseByTag({ owner, repo, tag: 'latest' });
                   console.log(`Found existing release id=${release.data.id} for tag 'latest'`);
 
-                  const oldBody = release.data.body || '';
-                  const line = `**latest tag commit:** ${sha} (short: ${sha.substring(0,7)})`;
-
-                  // replace existing line if any, otherwise append
-                  const newBody = oldBody.replace(/\*\*latest tag commit:\*\*.*(?:\r\n|\n)?/i, `${line}\n`);
-                  const finalBody = (newBody === oldBody) ? (oldBody + `\n\n${line}`) : newBody;
-
-                  await octokit.rest.repos.updateRelease({ owner, repo, release_id: release.data.id, name: 'Download SotongHD', body: finalBody });
-                  console.log('Updated release "Download SotongHD" body for tag latest (via octokit)');
+                  await octokit.rest.repos.updateRelease({ owner, repo, release_id: release.data.id, name: 'Download SotongHD' });
+                  console.log('Ensured release name is "Download SotongHD" (via octokit)');
                 } catch (getErr) {
-                  // If not found, create a release with tag 'latest' (assets should be uploaded by the build job)
-                  const createResp = await octokit.rest.repos.createRelease({ owner, repo, tag_name: 'latest', name: 'Download SotongHD', body: `**latest tag commit:** ${sha} (short: ${sha.substring(0,7)})`, draft: false, prerelease: false, target_commitish: sha });
+                  const createResp = await octokit.rest.repos.createRelease({ owner, repo, tag_name: 'latest', name: 'Download SotongHD', draft: false, prerelease: false, target_commitish: sha });
                   console.log(`Created release 'Download SotongHD' for tag 'latest' id=${createResp.data.id} (via octokit)`);
                   release = { data: createResp.data };
                 }
 
-                // Try to upload any SotongHD artifacts that were downloaded
                 try {
                   const fs = require('fs');
                   const files = fs.readdirSync('.');
