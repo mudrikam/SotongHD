@@ -2,7 +2,7 @@ name: Update 'latest' Tag
 
 on:
   workflow_run:
-    workflows: [ "Create Release ZIPs" ]
+    workflows: [ "Create Release ZIPs", "Build Executable Files" ]
     types: [ completed ]
   release:
     types: [ published, edited ]
@@ -20,7 +20,7 @@ jobs:
     if: ${{ github.event_name == 'release' || github.event_name == 'workflow_dispatch' || (github.event_name == 'workflow_run' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.conclusion == 'success') }}
     runs-on: ubuntu-latest
     steps:
-      - name: Find artifact from workflow_run
+      - name: Find artifacts from workflow_run
         if: ${{ github.event_name == 'workflow_run' }}
         id: find_artifact
         uses: actions/github-script@v6
@@ -31,24 +31,37 @@ jobs:
             const run_id = context.payload.workflow_run && context.payload.workflow_run.id;
             if (!run_id) {
               core.setOutput('found','false');
+              core.setOutput('artifacts','[]');
             } else {
               const artifacts = await github.rest.actions.listWorkflowRunArtifacts({ owner, repo, run_id });
-              const art = artifacts.data.artifacts.find(a => a.name === 'SotongHDx86_64');
-              if (!art) {
+              if (!artifacts.data.artifacts || artifacts.data.artifacts.length === 0) {
                 core.setOutput('found','false');
+                core.setOutput('artifacts','[]');
               } else {
+                const list = artifacts.data.artifacts.map(a => ({ name: a.name, archive_download_url: a.archive_download_url }));
                 core.setOutput('found','true');
-                core.setOutput('archive_download_url', art.archive_download_url);
-                core.setOutput('artifact_id', String(art.id));
+                core.setOutput('artifacts', JSON.stringify(list));
               }
             }
 
-      - name: Download workflow_run artifact
+      - name: Download workflow_run artifacts
         if: ${{ github.event_name == 'workflow_run' && steps.find_artifact.outputs.found == 'true' }}
         run: |
-          echo "Downloading artifact..."
-          curl -L -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" -o artifact.zip "${{ steps.find_artifact.outputs.archive_download_url }}"
-          unzip -o artifact.zip || true
+          echo "Downloading artifacts..."
+          echo '${{ steps.find_artifact.outputs.artifacts }}' > artifacts.json
+          python3 - <<'PY'
+import json, os, subprocess
+with open('artifacts.json') as f:
+    arts = json.load(f)
+token = os.environ.get('GITHUB_TOKEN')
+for a in arts:
+    name = a['name']
+    url = a['archive_download_url']
+    filename = f"{name}.zip"
+    print('Downloading', name)
+    subprocess.check_call(['curl','-L','-H',f'Authorization: Bearer {token}', '-o', filename, url])
+    subprocess.call(['unzip','-o', filename])
+PY
 
       - name: Update or create refs/tags/latest (using PAT if available)
         uses: actions/github-script@v6
@@ -163,34 +176,29 @@ jobs:
                   release = { data: createResp.data };
                 }
 
-                // Try to upload SotongHDx86_64.zip if present
+                // Try to upload any SotongHD artifacts that were downloaded
                 try {
                   const fs = require('fs');
-                  const path = './SotongHDx86_64.zip';
-                  if (fs.existsSync(path)) {
-                    const release_id = release.data.id;
-
-                    // delete existing asset with same name if present
-                    const assets = await octokit.rest.repos.listReleaseAssets({ owner, repo, release_id });
-                    const oldAsset = assets.data.find(a => a.name === 'SotongHDx86_64.zip');
-                    if (oldAsset) {
-                      await octokit.rest.repos.deleteReleaseAsset({ owner, repo, asset_id: oldAsset.id });
-                      console.log(`Deleted existing asset id=${oldAsset.id}`);
-                    }
-
-                    const uploadResp = await octokit.rest.repos.uploadReleaseAsset({
-                      owner,
-                      repo,
-                      release_id,
-                      name: 'SotongHDx86_64.zip',
-                      data: fs.readFileSync(path)
-                    });
-                    console.log(`Uploaded asset SotongHDx86_64.zip to release 'Download SotongHD' id=${release_id}`);
+                  const files = fs.readdirSync('.');
+                  const candidates = files.filter(f => /SotongHD.*\.(zip|exe|tar\.xz)$/.test(f));
+                  if (candidates.length === 0) {
+                    console.log('No SotongHD release artifacts found to upload.');
                   } else {
-                    console.log('No SotongHDx86_64.zip file present to upload.');
+                    const release_id = release.data.id;
+                    for (const f of candidates) {
+                      const assets = await octokit.rest.repos.listReleaseAssets({ owner, repo, release_id });
+                      const oldAsset = assets.data.find(a => a.name === f);
+                      if (oldAsset) {
+                        await octokit.rest.repos.deleteReleaseAsset({ owner, repo, asset_id: oldAsset.id });
+                        console.log(`Deleted existing asset id=${oldAsset.id}`);
+                      }
+
+                      await octokit.rest.repos.uploadReleaseAsset({ owner, repo, release_id, name: f, data: fs.readFileSync(f) });
+                      console.log(`Uploaded asset ${f} to release 'Download SotongHD' id=${release_id}`);
+                    }
                   }
                 } catch (err) {
-                  console.log('Warning: failed to upload asset to release latest:', err.message);
+                  console.log('Warning: failed to upload artifact(s) to release:', err.message);
                 }
 
               } catch (err) {

@@ -1,0 +1,120 @@
+name: Build Executable Files
+
+on:
+  push:
+    branches: [ main ]
+  release:
+    types: [ published ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  PYTHON_VERSION: '3.12'
+  APP_NAME: 'SotongHD'
+  TARGET: 'x86_64'
+
+jobs:
+  build-windows:
+    name: Build Windows executables
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-${{ hashFiles('**/requirements.txt') }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if (Test-Path requirements.txt) { pip install -r requirements.txt }
+          pip install pyinstaller==5.13.0 pip-audit
+
+      - name: Security scan dependencies (pip-audit)
+        run: |
+          pip-audit --progress=off || true
+
+      - name: Build portable (one-folder) - suitable for "portable" ZIP
+        run: |
+          # PyInstaller on Windows uses ';' as --add-data separator
+          pyinstaller --clean --noconfirm --onedir --name ${env:APP_NAME}-portable-${env:TARGET} --add-data "driver;driver" main.py
+
+      - name: Zip portable folder
+        run: |
+          Compress-Archive -Path .\dist\${env:APP_NAME}-portable-${env:TARGET}\* -DestinationPath ${env:APP_NAME}-portable-${env:TARGET}.zip -Force
+
+      - name: Build single-file exe (onefile)
+        run: |
+          pyinstaller --clean --noconfirm --onefile --name ${env:APP_NAME}-single-${env:TARGET} --add-data "driver;driver" main.py
+
+      - name: Collect artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${env:APP_NAME}-single-windows-${env:TARGET}
+          path: .\dist\${env:APP_NAME}-single-${env:TARGET}.exe
+
+      - name: Upload portable artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${env:APP_NAME}-portable-windows-${env:TARGET}
+          path: ${env:APP_NAME}-portable-${env:TARGET}.zip
+
+      - name: Upload artifacts to Release (on release event)
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ${env:APP_NAME}-single-${env:TARGET}.exe
+            ${env:APP_NAME}-portable-${env:TARGET}.zip
+
+  build-linux:
+    name: Build Linux portable (optional)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build portable (one-folder) for Linux
+        run: |
+          pyinstaller --clean --noconfirm --onedir --name ${APP_NAME}-portable-${TARGET} --add-data "driver:driver" main.py
+
+      - name: Create tar.xz
+        run: |
+          tar -cJf ${APP_NAME}-portable-${TARGET}.tar.xz -C dist ${APP_NAME}-portable-${TARGET}
+
+      - name: Upload Linux portable artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${APP_NAME}-portable-linux-${TARGET}
+          path: ${APP_NAME}-portable-${TARGET}.tar.xz
+
+  notes:
+    name: Notes for maintainers
+    runs-on: ubuntu-latest
+    steps:
+      - name: Explain
+        run: |
+          echo "This workflow builds Windows single-file executable and a portable one-folder ZIP, plus a Linux portable tar.xz."
+          echo "Important:\n - The 'portable' build (one-folder) is suitable for replacing files like the driver at runtime.\n - The single-file exe is convenient but extracts to a temp folder at runtime, so it is not ideal for persistent file updates.\n - For code-signing, add a certificate and signing steps (requires secrets).\n - If you want builds for macOS or additional architectures (arm64), I can add jobs for those platforms."
