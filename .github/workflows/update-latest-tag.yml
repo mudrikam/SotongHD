@@ -45,6 +45,7 @@ jobs:
             }
 
       - name: Wait for related workflow runs to complete
+        id: wait_for_related_workflow_runs_to_complete
         if: ${{ github.event_name == 'workflow_run' }}
         uses: actions/github-script@v6
         with:
@@ -118,21 +119,31 @@ jobs:
             }
 
       - name: Download workflow_run artifacts
+        id: download_artifacts
         if: ${{ github.event_name == 'workflow_run' && steps.find_artifact.outputs.found == 'true' && steps.wait_for_related_workflow_runs_to_complete.outputs.ready == 'true' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           echo "Downloading artifacts..."
           echo '${{ steps.find_artifact.outputs.artifacts }}' > artifacts.json
           python3 - <<'PY'
-          import json, os, subprocess
+          import json, os, subprocess, sys
           with open('artifacts.json') as f:
               arts = json.load(f)
           token = os.environ.get('GITHUB_TOKEN')
+          if not token:
+              print('ERROR: GITHUB_TOKEN not set in environment')
+              sys.exit(2)
           for a in arts:
               name = a['name']
               url = a['archive_download_url']
               filename = f"{name}.zip"
-              print('Downloading', name)
-              subprocess.check_call(['curl','-L','-H',f'Authorization: Bearer {token}', '-o', filename, url])
+              print('Downloading', name, 'from', url)
+              try:
+                  subprocess.check_call(['curl','-f','-L','-H',f'Authorization: Bearer {token}', '-o', filename, url])
+              except Exception as e:
+                  print('Failed to download', name, e)
+                  sys.exit(3)
               subprocess.call(['unzip','-o', filename])
           PY
 
