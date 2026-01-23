@@ -3,8 +3,6 @@ name: Create Release ZIPs
 on:
   push:
     branches: [ main ]
-  release:
-    types: [published]
 
 permissions:
   contents: write
@@ -29,13 +27,6 @@ jobs:
           cd temp_zip
           zip -r ../SotongHDx86_64.zip . -x "*.git*"
           cd ..
-
-      - name: Upload ZIP to Release (on release event)
-        if: github.event_name == 'release'
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            SotongHDx86_64.zip
 
       - name: Upload ZIP artifact (on push to main)
         if: github.event_name == 'push'
