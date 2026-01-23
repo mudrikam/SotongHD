@@ -1,0 +1,49 @@
+name: Create Release ZIPs
+
+on:
+  push:
+    branches: [ main ]
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  create-zips:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Create ZIP file
+        run: |
+          # Create temporary directory for zipping
+          mkdir -p temp_zip
+
+          # Copy all files except .git directory
+          rsync -av --exclude='.git' --exclude='temp_zip' ./ temp_zip/
+
+          # Create single ZIP file with the repository content
+          cd temp_zip
+          zip -r ../SotongHDx86_64.zip . -x "*.git*"
+          cd ..
+
+      - name: Upload ZIP to Release (on release event)
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            SotongHDx86_64.zip
+
+      - name: Upload ZIP artifact (on push to main)
+        if: github.event_name == 'push'
+        uses: actions/upload-artifact@v4
+        with:
+          name: SotongHDx86_64
+          path: SotongHDx86_64.zip
+
+      - name: Cleanup temporary files
+        run: |
+          rm -rf temp_zip SotongHDx86_64.zip
