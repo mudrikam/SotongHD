@@ -50,18 +50,18 @@ jobs:
           echo "Downloading artifacts..."
           echo '${{ steps.find_artifact.outputs.artifacts }}' > artifacts.json
           python3 - <<'PY'
-import json, os, subprocess
-with open('artifacts.json') as f:
-    arts = json.load(f)
-token = os.environ.get('GITHUB_TOKEN')
-for a in arts:
-    name = a['name']
-    url = a['archive_download_url']
-    filename = f"{name}.zip"
-    print('Downloading', name)
-    subprocess.check_call(['curl','-L','-H',f'Authorization: Bearer {token}', '-o', filename, url])
-    subprocess.call(['unzip','-o', filename])
-PY
+          import json, os, subprocess
+          with open('artifacts.json') as f:
+              arts = json.load(f)
+          token = os.environ.get('GITHUB_TOKEN')
+          for a in arts:
+              name = a['name']
+              url = a['archive_download_url']
+              filename = f"{name}.zip"
+              print('Downloading', name)
+              subprocess.check_call(['curl','-L','-H',f'Authorization: Bearer {token}', '-o', filename, url])
+              subprocess.call(['unzip','-o', filename])
+          PY
 
       - name: Update or create refs/tags/latest (using PAT if available)
         uses: actions/github-script@v6
