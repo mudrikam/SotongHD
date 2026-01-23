@@ -10,10 +10,8 @@ class ScalableImageLabel(QLabel):
         self.original_pixmap = None
         self.image_path = None
         self.rounded_pixmap = None
-        # Set size policy to allow the widget to shrink
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         
-        # Remove background styling, only keep minimal padding
         self.setStyleSheet("""
             QLabel {
                 padding: 5px;
@@ -22,24 +20,18 @@ class ScalableImageLabel(QLabel):
         """)
         
     def setImagePath(self, path):
-        """Menyimpan path gambar dan memuat pixmap original"""
         if not os.path.exists(path):
             return False
-            
-        # Ensure path is a string to avoid any type issues
         self.image_path = str(path)
         self.original_pixmap = QPixmap(self.image_path)
         self.updatePixmap()
         return not self.original_pixmap.isNull()
         
     def updatePixmap(self):
-        """Menyesuaikan ukuran gambar sesuai dengan ukuran label"""
         if self.original_pixmap and not self.original_pixmap.isNull():
-            # Handle potential zero-sized widget
-            width = max(10, self.width() - 24)  # Account for padding and border
+            width = max(10, self.width() - 24)
             height = max(10, self.height() - 24)
             
-            # Create a scaled version of the pixmap
             self.scaled_pixmap = self.original_pixmap.scaled(
                 width, 
                 height,
@@ -47,12 +39,10 @@ class ScalableImageLabel(QLabel):
                 Qt.SmoothTransformation
             )
             
-            # Don't set the pixmap directly - we'll draw it in paintEvent
             self.setMinimumSize(100, 100)
-            self.update()  # Force a repaint
+            self.update()
     
     def paintEvent(self, event):
-        """Override paint event to draw rounded image"""
         super().paintEvent(event)
         
         if hasattr(self, 'scaled_pixmap') and self.scaled_pixmap and not self.scaled_pixmap.isNull():
@@ -60,31 +50,25 @@ class ScalableImageLabel(QLabel):
             painter.setRenderHint(QPainter.Antialiasing)
             painter.setRenderHint(QPainter.SmoothPixmapTransform)
             
-            # Calculate centered position
             pixmap_rect = self.scaled_pixmap.rect()
             x = (self.width() - pixmap_rect.width()) // 2
             y = (self.height() - pixmap_rect.height()) // 2
             
-            # Create a rounded rect path with stronger radius
-            radius = 20  # Increased border radius for the image
+            radius = 20
             path = QPainterPath()
             path.addRoundedRect(
                 QRectF(x, y, pixmap_rect.width(), pixmap_rect.height()),
                 radius, radius
             )
             
-            # Set the clipping path to the rounded rectangle
             painter.setClipPath(path)
             
-            # Draw the pixmap inside the clipping path
             painter.drawPixmap(x, y, self.scaled_pixmap)
     
     def resizeEvent(self, event):
-        """Event yang terpanggil saat widget di-resize"""
         super().resizeEvent(event)
         self.updatePixmap()
         
-    # Override size hint methods to allow widget to shrink
     def sizeHint(self):
         return QSize(200, 200)
         
@@ -92,7 +76,6 @@ class ScalableImageLabel(QLabel):
         return QSize(10, 10)
 
 def center_window_on_screen(window):
-    """Center a window on the screen."""
     from PySide6.QtWidgets import QApplication
     screen_geometry = QApplication.primaryScreen().geometry()
     window_geometry = window.geometry()
@@ -103,7 +86,6 @@ def center_window_on_screen(window):
     window.move(x, y)
 
 def setup_drag_drop_style(frame, highlighted=False):
-    """Set the style for the drag and drop frame"""
     if not frame:
         return
         
@@ -125,24 +107,18 @@ def setup_drag_drop_style(frame, highlighted=False):
         """)
 
 def setup_format_toggle(app, config_manager):
-    """Set up format toggle UI elements and connect signals"""
-    # Get UI elements
     format_toggle = app.findChild(QPushButton, "formatToggle")
     
     if not format_toggle:
         logger.peringatan("Format toggle UI element not found")
         return
     
-    # Make it checkable
     format_toggle.setCheckable(True)
-    
-    # Set initial state based on config
     current_format = config_manager.get_output_format()
     is_jpg = current_format == "jpg"
     format_toggle.setChecked(is_jpg)
     format_toggle.setText("JPG" if is_jpg else "PNG")
     
-    # Set stylesheet for toggle appearance
     format_toggle.setStyleSheet("""
         QPushButton {
             border-radius: 15px;
@@ -158,8 +134,6 @@ def setup_format_toggle(app, config_manager):
             background-color: rgb(192, 57, 43);
         }
     """)
-    
-    # Connect toggle signal
     format_toggle.toggled.connect(
         lambda checked: on_format_toggle_changed(checked, format_toggle, config_manager)
     )
@@ -167,65 +141,40 @@ def setup_format_toggle(app, config_manager):
     return format_toggle
 
 def on_format_toggle_changed(checked, format_toggle, config_manager):
-    """Handle format toggle state change"""
     is_jpg = checked
-    
-    # Update the config with the new format
     config_manager.set_output_format("jpg" if is_jpg else "png")
-    
-    # Update toggle text
     format_toggle.setText("JPG" if is_jpg else "PNG")
-    
-    # Log the format change
     logger.info(f"Output format changed to: {'JPG' if is_jpg else 'PNG'}")
 
 def set_application_icon(app, icon_path):
-    """Set the application icon for both the window and the center label"""
     if icon_path and os.path.exists(icon_path):
-        # Find the iconLabel in the UI
         icon_label = app.findChild(QLabel, "iconLabel")
         
         if icon_label:
             try:
-                # Check if it's an .ico file which needs special handling
                 if icon_path.lower().endswith('.ico'):
-                    # Load as icon and extract the largest size
                     icon = QIcon(icon_path)
                     available_sizes = icon.availableSizes()
                     
                     if available_sizes:
-                        # Find the largest available size
                         largest_size = max(available_sizes, key=lambda s: s.width() * s.height())
-                        
-                        # Request the largest size available in the icon
                         pixmap = icon.pixmap(largest_size)
                     else:
-                        # Explicitly request a large size if sizes not available
                         pixmap = icon.pixmap(QSize(256, 256))
                 else:
-                    # For non-ico files, load directly as pixmap
                     pixmap = QPixmap(icon_path)
                 
                 if not pixmap.isNull():
-                    
-                    # Use a larger size for display (128x128)
                     display_size = 128
-                    
-                    # Scale pixmap while preserving aspect ratio
                     scaled_pixmap = pixmap.scaled(
                         display_size, display_size,
                         Qt.KeepAspectRatio,
                         Qt.SmoothTransformation
                     )
                     
-                    # Set the pixmap to the label
                     icon_label.setPixmap(scaled_pixmap)
                     icon_label.setAlignment(Qt.AlignCenter)
-                    
-                    # Ensure minimum size is set to maintain proper display
                     icon_label.setMinimumSize(display_size, display_size)
-                    
-                    # logger.info(f"Set application icon: {pixmap.width()}x{pixmap.height()} → {scaled_pixmap.width()}x{scaled_pixmap.height()}")
                     return True
                 else:
                     logger.peringatan(f"Gagal memuat icon - pixmap null: {icon_path}")
