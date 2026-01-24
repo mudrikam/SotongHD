@@ -803,52 +803,119 @@ class ImageProcessor:
 
                 processing_percent_range = percentages["processing"] - 5
 
-                while not found_image and not self.should_stop:
+                if self.config_manager and hasattr(self.config_manager, 'get_max_wait_seconds'):
                     try:
-                        elapsed = time.time() - start_time
-                        elapsed_percent = min(100, int(elapsed / 60 * 100))
-                        process_stage_percent = (elapsed_percent / 100) * processing_percent_range
-                        stage_percent = percentages["browser_setup"] + percentages["upload"] + 5 + process_stage_percent
-                        self.update_progress(
-                            f"Memproses enhancement: {Path(file_path).name} ({int(elapsed)} detik)", 
-                            percentage=calculate_global_percent(stage_percent),
-                            current=current_num, 
-                            total=total_files
-                        )
-                        
+                        max_wait_seconds = int(self.config_manager.get_max_wait_seconds())
+                        if max_wait_seconds <= 0:
+                            max_wait_seconds = 120
+                    except Exception as e:
+                        logger.peringatan("Invalid max_wait_seconds config, using default", str(e))
+                        max_wait_seconds = 120
+                else:
+                    max_wait_seconds = 120
 
-                        possible_selectors = [
-                            'div[data-testid="EnhancedImage"] img',
-                            'div[data-testid="EnhancedImage"][class*="widget-widgetContainer"] img',
-                            'div[data-testid="EnhancedImage"] *[src]',
-                            'img[alt*="enhanced"]',
-                            'div[data-testid="EnhancedImage"]>div>img',
-                            'div[data-testid="EnhancedImage"] picture img'
-                        ]
-                        
-                        for selector in possible_selectors:
+                logger.info(f"Menunggu hasil enhancement hingga {max_wait_seconds}s maksimal", file_name)
+
+                start_time_wait = time.time()
+                last_log_time = start_time_wait
+
+                possible_selectors = [
+                    'div[data-testid="EnhancedImage"] img',
+                    'div[data-testid="EnhancedImage"][class*="widget-widgetContainer"] img',
+                    'div[data-testid="EnhancedImage"] *[src]',
+                    'img[alt*="enhanced"]',
+                    'div[data-testid="EnhancedImage"]>div>img',
+                    'div[data-testid="EnhancedImage"] picture img'
+                ]
+
+                while not found_image and not self.should_stop:
+                    elapsed = time.time() - start_time_wait
+                    if elapsed > max_wait_seconds:
+                        output_folder = os.path.join(os.path.dirname(file_path), "UPSCALE")
+                        os.makedirs(output_folder, exist_ok=True)
+                        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                        timeout_screenshot = os.path.join(output_folder, f"timeout_debug_{timestamp}.png")
+                        timeout_html = os.path.join(output_folder, f"timeout_page_source_{timestamp}.html")
+                        try:
+                            driver.save_screenshot(timeout_screenshot)
+                        except Exception as e:
+                            logger.kesalahan("Gagal menyimpan screenshot pada timeout", f"{file_name} - {str(e)}")
+                        try:
+                            with open(timeout_html, 'w', encoding='utf-8') as f:
+                                f.write(driver.page_source)
+                        except Exception as e:
+                            logger.kesalahan("Gagal menyimpan page source pada timeout", f"{file_name} - {str(e)}")
+
+                        logger.kesalahan("Timeout menunggu hasil enhancement", f"{file_name} - tidak ada hasil setelah {int(elapsed)} detik. Screenshot: {timeout_screenshot}, HTML: {timeout_html}")
+                        result["error"] = f"Timeout menunggu hasil enhancement setelah {int(elapsed)} detik"
+                        result["end_time"] = datetime.now()
+                        result["duration"] = (result["end_time"] - result["start_time"]).total_seconds()
+                        try:
+                            driver.quit()
+                        except Exception as e:
+                            logger.peringatan("Gagal menutup driver setelah timeout", f"{file_name} - {str(e)}")
+                        return result
+
+                    elapsed_percent = min(100, int(elapsed / 60 * 100))
+                    process_stage_percent = (elapsed_percent / 100) * processing_percent_range
+                    stage_percent = percentages["browser_setup"] + percentages["upload"] + 5 + process_stage_percent
+
+                    self.update_progress(
+                        f"Memproses enhancement: {Path(file_path).name} ({int(elapsed)} detik)", 
+                        percentage=calculate_global_percent(stage_percent),
+                        current=current_num, 
+                        total=total_files
+                    )
+
+                    debug_summary = []
+
+                    for selector in possible_selectors:
+                        try:
+                            img_elements = driver.execute_script(f"return Array.from(document.querySelectorAll('{selector}'))")
+                        except Exception as e:
+                            logger.kesalahan("Script error saat mengeksekusi selector", f"{file_name} - selector: {selector} - {str(e)}")
+                            debug_summary.append({'selector': selector, 'error': str(e)})
+                            continue
+
+                        count = len(img_elements) if hasattr(img_elements, '__len__') else 0
+                        src_types = []
+                        for img in img_elements:
+                            src = None
                             try:
+                                src = img.get_attribute('src')
+                            except Exception:
+                                try:
+                                    src = driver.execute_script('return arguments[0].getAttribute("src");', img)
+                                except Exception as ee:
+                                    logger.kesalahan("Gagal mengambil atribut src", f"{file_name} - selector: {selector} - {str(ee)}")
+                                    src = None
 
-                                img_elements = driver.execute_script(f"""
-                                    return document.querySelectorAll('{selector}');
-                                """)
-                                
-                                if len(img_elements) > 0:
-                                    for img in img_elements:
-                                        image_url = img.get_attribute("src")
-                                        if image_url and "http" in image_url:
-                                            found_image = True
-                                            break
-                                    
-                                    if found_image:
-                                        break
-                            except Exception as e:
-                                continue
-                        
-                        if not found_image:
-                            time.sleep(self.polling_interval)
-                    except Exception:
-                        time.sleep(self.polling_interval)
+                            if src:
+                                if src.startswith('http'):
+                                    image_url = src
+                                    found_image = True
+                                    src_types.append('http')
+                                    break
+                                elif src.startswith('blob:'):
+                                    src_types.append('blob')
+                                elif src.startswith('data:'):
+                                    image_url = src
+                                    found_image = True
+                                    src_types.append('data')
+                                    break
+                                else:
+                                    src_types.append('other')
+
+                        debug_summary.append({'selector': selector, 'count': count, 'src_types': src_types})
+
+                        if found_image:
+                            break
+
+                    if time.time() - last_log_time >= 5:
+                        logger.info(f"Menunggu hasil: {file_name} - elapsed={int(elapsed)}s - selectors checked={len(possible_selectors)} - debug={debug_summary}", file_name)
+                        last_log_time = time.time()
+
+                    time.sleep(self.polling_interval)
                 if self.should_stop:
                     result["error"] = "Proses dihentikan pengguna"
                     logger.info("Pemrosesan dibatalkan oleh pengguna", file_name)
@@ -857,106 +924,174 @@ class ImageProcessor:
                 
 
                 logger.info(f"Menemukan gambar hasil", file_name)
-                
 
-                response = requests.get(image_url, stream=True)
-                
-                if response.status_code == 200:
+                is_stream = False
+                data_bytes = None
 
-                    self.update_progress(
-                        f"Mengunduh gambar enhancement: {Path(file_path).name}", 
-                        percentage=calculate_global_percent(percentages["browser_setup"] + percentages["upload"] + percentages["processing"] + percentages["downloading"] / 2),
-                        current=current_num, 
-                        total=total_files
-                    )
-                    
-
-                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                    file_name = Path(file_path).stem
-                    
-
-                    output_folder = os.path.join(os.path.dirname(file_path), "UPSCALE")
-                    os.makedirs(output_folder, exist_ok=True)
-                    
-
-                    output_format = "png"
-                    if self.config_manager:
-                        output_format = self.config_manager.get_output_format()
-                    
-
-                    enhanced_path = os.path.join(output_folder, f"{file_name}_{timestamp}.{output_format}")
-                    
-
-                    if output_format == "jpg" and response.status_code == 200:
+                if image_url.startswith('http'):
+                    response = requests.get(image_url, stream=True)
+                    if response.status_code != 200:
+                        self.update_progress(
+                            f"Gagal mengunduh gambar. Status code: {response.status_code}", 
+                            percentage=calculate_global_percent(percentages["browser_setup"] + percentages["upload"] + percentages["processing"] + percentages["downloading"]),
+                            current=current_num, 
+                            total=total_files
+                        )
+                        logger.kesalahan(f"Gagal mengunduh hasil. Status code: {response.status_code}", file_name)
+                        result["error"] = f"Gagal mengunduh gambar. Status code: {response.status_code}"
+                        result["end_time"] = datetime.now()
+                        result["duration"] = (result["end_time"] - result["start_time"]).total_seconds()
                         try:
-
+                            driver.quit()
+                        except Exception as e:
+                            logger.peringatan("Gagal menutup driver setelah download error", f"{file_name} - {str(e)}")
+                        return result
+                    is_stream = True
+                elif image_url.startswith('data:'):
+                    try:
+                        import base64
+                        header, b64 = image_url.split(',', 1)
+                        data_bytes = base64.b64decode(b64)
+                    except Exception as e:
+                        logger.kesalahan("Gagal decode data URL", f"{file_name} - {str(e)}")
+                        result["error"] = f"Gagal decode data URL: {str(e)}"
+                        result["end_time"] = datetime.now()
+                        result["duration"] = (result["end_time"] - result["start_time"]).total_seconds()
+                        try:
+                            driver.quit()
+                        except Exception as e:
+                            logger.peringatan("Gagal menutup driver setelah decode error", f"{file_name} - {str(e)}")
+                        return result
+                elif image_url.startswith('blob:'):
+                    try:
+                        data_url = driver.execute_async_script("""
+                            const blobUrl = arguments[0];
+                            const callback = arguments[1];
+                            fetch(blobUrl).then(r => r.blob()).then(blob => {
+                                const fr = new FileReader();
+                                fr.onload = function(){ callback(fr.result); }
+                                fr.onerror = function(){ callback(null); }
+                                fr.readAsDataURL(blob);
+                            }).catch(()=>{ callback(null); });
+                        """, image_url)
+                        if data_url:
+                            import base64
+                            header, b64 = data_url.split(',', 1)
+                            data_bytes = base64.b64decode(b64)
+                        else:
+                            logger.kesalahan("Gagal konversi blob ke data URL", file_name)
+                            result["error"] = "Gagal konversi blob ke data URL"
+                            result["end_time"] = datetime.now()
+                            result["duration"] = (result["end_time"] - result["start_time"]).total_seconds()
                             try:
-                                from PIL import Image
-                                import io
-                                HAS_PIL = True
-                            except ImportError:
-                                HAS_PIL = False
-                                logger.peringatan("PIL tidak tersedia - tidak dapat konversi ke JPG", "Silakan install pillow: pip install pillow")
+                                driver.quit()
+                            except Exception as e:
+                                logger.peringatan("Gagal menutup driver setelah blob konversi gagal", f"{file_name} - {str(e)}")
+                            return result
+                    except Exception as e:
+                        logger.kesalahan("Gagal mengambil blob data", f"{file_name} - {str(e)}")
+                        result["error"] = f"Gagal mengambil blob data: {str(e)}"
+                        result["end_time"] = datetime.now()
+                        result["duration"] = (result["end_time"] - result["start_time"]).total_seconds()
+                        try:
+                            driver.quit()
+                        except Exception as e:
+                            logger.peringatan("Gagal menutup driver setelah blob error", f"{file_name} - {str(e)}")
+                        return result
+                else:
+                    logger.kesalahan("Unsupported image URL scheme", f"{file_name} - {image_url[:200]}")
+                    result["error"] = "Unsupported image URL scheme"
+                    result["end_time"] = datetime.now()
+                    result["duration"] = (result["end_time"] - result["start_time"]).total_seconds()
+                    try:
+                        driver.quit()
+                    except Exception as e:
+                        logger.peringatan("Gagal menutup driver setelah unsupported URL", f"{file_name} - {str(e)}")
+                    return result
 
-                                enhanced_path = os.path.join(output_folder, f"{file_name}_{timestamp}.png")
+                self.update_progress(
+                    f"Mengunduh gambar enhancement: {Path(file_path).name}", 
+                    percentage=calculate_global_percent(percentages["browser_setup"] + percentages["upload"] + percentages["processing"] + percentages["downloading"] / 2),
+                    current=current_num, 
+                    total=total_files
+                )
+
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                file_name = Path(file_path).stem
+
+                output_folder = os.path.join(os.path.dirname(file_path), "UPSCALE")
+                os.makedirs(output_folder, exist_ok=True)
+
+                output_format = "png"
+                if self.config_manager:
+                    output_format = self.config_manager.get_output_format()
+
+                enhanced_path = os.path.join(output_folder, f"{file_name}_{timestamp}.{output_format}")
+
+                if output_format == "jpg" and (is_stream or data_bytes is not None):
+                    try:
+                        try:
+                            from PIL import Image
+                            import io
+                            HAS_PIL = True
+                        except ImportError:
+                            HAS_PIL = False
+                            logger.peringatan("PIL tidak tersedia - tidak dapat konversi ke JPG", "Silakan install pillow: pip install pillow")
+                            enhanced_path = os.path.join(output_folder, f"{file_name}_{timestamp}.png")
+                            if is_stream:
                                 with open(enhanced_path, 'wb') as f:
                                     for chunk in response.iter_content(1024):
                                         f.write(chunk)
-                                        
+                            else:
+                                with open(enhanced_path, 'wb') as f:
+                                    f.write(data_bytes)
 
-                            if HAS_PIL:
-
-                                temp_path = os.path.join(output_folder, f"{file_name}_temp_{timestamp}.png")
+                        if HAS_PIL:
+                            temp_path = os.path.join(output_folder, f"{file_name}_temp_{timestamp}.png")
+                            if is_stream:
                                 with open(temp_path, 'wb') as f:
                                     for chunk in response.iter_content(1024):
                                         f.write(chunk)
-                                
+                            else:
+                                with open(temp_path, 'wb') as f:
+                                    f.write(data_bytes)
 
-                                img = Image.open(temp_path)
-                                rgb_img = img.convert('RGB')
-                                rgb_img.save(enhanced_path, quality=95)
-                                
+                            img = Image.open(temp_path)
+                            rgb_img = img.convert('RGB')
+                            rgb_img.save(enhanced_path, quality=95)
 
-                                if os.path.exists(temp_path):
-                                    os.remove(temp_path)
-                                    
-                        except Exception as e:
-                            logger.kesalahan(f"Error saat konversi ke JPG", f"{file_name} - {str(e)}")
-
-                            enhanced_path = os.path.join(output_folder, f"{file_name}_{timestamp}.png")
+                            if os.path.exists(temp_path):
+                                os.remove(temp_path)
+                    except Exception as e:
+                        logger.kesalahan(f"Error saat konversi ke JPG", f"{file_name} - {str(e)}")
+                        enhanced_path = os.path.join(output_folder, f"{file_name}_{timestamp}.png")
+                        if is_stream:
                             with open(enhanced_path, 'wb') as f:
                                 for chunk in response.iter_content(1024):
                                     f.write(chunk)
-                    else:
-
+                        else:
+                            with open(enhanced_path, 'wb') as f:
+                                f.write(data_bytes)
+                else:
+                    if is_stream:
                         with open(enhanced_path, 'wb') as f:
                             for chunk in response.iter_content(1024):
                                 f.write(chunk)
-                    
+                    else:
+                        with open(enhanced_path, 'wb') as f:
+                            f.write(data_bytes)
 
-                    self.update_progress(
-                        f"Gambar berhasil disimpan: {Path(enhanced_path).name}", 
-                        percentage=calculate_global_percent(100),
-                        current=current_num, 
-                        total=total_files
-                    )
-                    
+                self.update_progress(
+                    f"Gambar berhasil disimpan: {Path(enhanced_path).name}", 
+                    percentage=calculate_global_percent(100),
+                    current=current_num, 
+                    total=total_files
+                )
 
-                    logger.sukses(f"Berhasil menyimpan gambar enhancement", enhanced_path)
-                    
-                    result["success"] = True
-                    result["enhanced_path"] = enhanced_path
-                else:
-                    self.update_progress(
-                        f"Gagal mengunduh gambar. Status code: {response.status_code}", 
-                        percentage=calculate_global_percent(percentages["browser_setup"] + percentages["upload"] + percentages["processing"] + percentages["downloading"]),
-                        current=current_num, 
-                        total=total_files
-                    )
-                    
-
-                    logger.kesalahan(f"Gagal mengunduh hasil. Status code: {response.status_code}", file_name)
-                    result["error"] = f"Gagal mengunduh gambar. Status code: {response.status_code}"
+                logger.sukses(f"Berhasil menyimpan gambar enhancement", enhanced_path)
+                
+                result["success"] = True
+                result["enhanced_path"] = enhanced_path
             finally:
                 driver.quit()
                 
