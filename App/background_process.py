@@ -63,7 +63,32 @@ class ImageProcessor:
     def update_progress(self, message: str, percentage: int = None, current: int = None, total: int = None):
         if current is not None and total is not None:
             message = f"{message} [{current}/{total}]"
-        
+
+        def _shorten_filename(name: str, max_len: int = 40) -> str:
+            base, ext = os.path.splitext(name)
+            if len(base) + len(ext) <= max_len:
+                return base + ext
+            keep_len = max_len - len(ext) - 3
+            if keep_len <= 0:
+                return (base + ext)[:max_len-3] + '...'
+            left = int(keep_len * 0.6)
+            right = keep_len - left
+            return base[:left] + '...' + base[-right:] + ext
+
+        def _truncate_message(msg: str, max_total: int = 80) -> str:
+            import re
+            pattern = re.compile(r"([\w\W]{1,200}?\.(?:jpg|jpeg|png|bmp|gif))", re.IGNORECASE)
+            def repl(m):
+                fn = m.group(1)
+                shortened = _shorten_filename(os.path.basename(fn), max_len=40)
+                return shortened
+            new_msg = pattern.sub(repl, msg)
+            if len(new_msg) > max_total:
+                return new_msg[:max_total-3] + '...'
+            return new_msg
+
+        message = _truncate_message(message)
+
         if self.progress_signal:
             self.progress_signal.progress.emit(message, percentage if percentage is not None else 0)
         elif self.progress_callback:
@@ -116,7 +141,7 @@ class ImageProcessor:
     
     def stop_processing(self):
         if self.processing_thread and self.processing_thread.is_alive():
-            logger.info("Menghentikan pemrosesan berdasarkan permintaan pengguna")
+            logger.info("Menghentikan pemrosesan atas permintaan user")
             self.should_stop = True
             self.processing_thread.join(10)
     
@@ -200,7 +225,8 @@ class ImageProcessor:
 
                         caps.setdefault('goog:chromeOptions', {})['args'] = filtered_args
 
-                        logger.info(f"Launching Chrome slot={idx} - headless={self.headless}, incognito={self.incognito}", str(caps.get('goog:chromeOptions', caps)))
+                        logger.info(f"Memulai Chrome untuk slot {idx} (headless={'Ya' if self.headless else 'Tidak'}, incognito={'Ya' if self.incognito else 'Tidak'})")
+                        logger.debug(f"Chrome capabilities for slot {idx}: {str(caps.get('goog:chromeOptions', caps))}")
 
                         try:
                             driver = webdriver.Chrome(service=Service(self.chromedriver_path), desired_capabilities=caps)
@@ -289,7 +315,8 @@ class ImageProcessor:
                     try:
                         input_file = d.find_element(By.CSS_SELECTOR, selector)
                         if input_file:
-                            logger.info(f"Slot {idx}: Mengunggah {file_name} ke selector {selector}")
+                            logger.info(f"Mengunggah file {file_name} untuk diproses (slot {idx})")
+                            logger.debug(f"Upload selector for slot {idx}: {selector}")
                             break
                     except Exception:
                         continue
@@ -301,7 +328,7 @@ class ImageProcessor:
                         input_file = None
 
                 if not input_file:
-                    logger.kesalahan("Slot upload element not found", file_name)
+                    logger.kesalahan("Area unggah tidak ditemukan", file_name)
                     chunk_results[idx] = {
                         "file_path": file_path,
                         "success": False,
@@ -321,7 +348,7 @@ class ImageProcessor:
                 try:
                     input_file.send_keys(file_path)
                 except Exception as e:
-                    logger.kesalahan("Gagal mengirim file ke input upload", f"{file_name} - {str(e)}")
+                    logger.kesalahan(f"Gagal mengunggah file {file_name}", str(e))
                     chunk_results[idx] = {
                         "file_path": file_path,
                         "success": False,
@@ -750,13 +777,14 @@ class ImageProcessor:
                     try:
                         input_file = driver.find_element(By.CSS_SELECTOR, selector)
                         if input_file:
-                            logger.info(f"Mencoba mengunggah gambar ke: {selector}")
+                            logger.info(f"Mengunggah file {file_name} untuk diproses")
+                            logger.debug(f"Selector dicoba: {selector}")
                             break
                     except:
                         continue
                 
                 if not input_file:
-                    logger.info("Mencoba mencari elemen dengan JavaScript")
+                    logger.info("Mencari elemen unggah secara alternatif")
                     try:
                         input_file = driver.execute_script("""
                             return document.querySelector("div[id='uploadArea'] input") || 
@@ -912,13 +940,13 @@ class ImageProcessor:
                             break
 
                     if time.time() - last_log_time >= 5:
-                        logger.info(f"Menunggu hasil: {file_name} - elapsed={int(elapsed)}s - selectors checked={len(possible_selectors)} - debug={debug_summary}", file_name)
+                        logger.debug(f"Menunggu hasil (debug): {file_name} - elapsed={int(elapsed)}s - selectors_checked={len(possible_selectors)} - debug={debug_summary}", file_name)
                         last_log_time = time.time()
 
                     time.sleep(self.polling_interval)
                 if self.should_stop:
-                    result["error"] = "Proses dihentikan pengguna"
-                    logger.info("Pemrosesan dibatalkan oleh pengguna", file_name)
+                    result["error"] = "Proses dihentikan oleh user"
+                    logger.info("Proses dibatalkan oleh user", file_name)
                     return result
 
                 

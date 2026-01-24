@@ -7,12 +7,7 @@ from PySide6.QtGui import QDesktopServices, QPixmap
 from PySide6.QtWidgets import QFrame, QScrollArea, QWidget, QGridLayout, QVBoxLayout, QHBoxLayout, QSpacerItem, QSizePolicy
 from .logger import logger
 
-try:
-    import qtawesome as qta
-    HAS_AWESOME = True
-except ImportError:
-    HAS_AWESOME = False
-    logger.peringatan("QtAwesome tidak tersedia, ikon tidak akan ditampilkan")
+import qtawesome as qta
 
 class StatsDialog(QDialog):
     
@@ -130,16 +125,19 @@ class StatsDialog(QDialog):
             pixmap = icon.pixmap(64, 64)
             if hasattr(self, 'iconLabel'):
                 self.iconLabel.setPixmap(pixmap)
-        
-        self.setup_awesome_icons()
 
         button_layout = QHBoxLayout()
         self.openFolderButton = QPushButton('Buka Folder', self)
         self.openFolderButton.setObjectName('openFolderButton')
+        # match main window button appearance
+        self.openFolderButton.setMinimumHeight(36)
+        self.openFolderButton.setStyleSheet("QPushButton {\n  background-color: rgba(161, 161, 161, 0.08);\n  border-radius: 10px;\n  padding: 8px 16px;\n}\nQPushButton:hover {\n  background-color: rgba(88, 29, 239, 0.7);\n  border: none;\n}\nQPushButton:pressed {\n  background-color: rgba(88, 29, 239, 1.0);\n}")
         button_layout.addWidget(self.openFolderButton)
 
         self.closeButton = QPushButton('Tutup', self)
         self.closeButton.setObjectName('closeButton')
+        self.closeButton.setMinimumHeight(36)
+        self.closeButton.setStyleSheet("QPushButton {\n  background-color: rgba(161, 161, 161, 0.08);\n  border-radius: 10px;\n  padding: 8px 16px;\n}\nQPushButton:hover {\n  background-color: rgba(231, 76, 60, 0.7);\n  border: none;\n}\nQPushButton:pressed {\n  background-color: rgba(231, 76, 60, 1.0);\n}\nQPushButton:disabled {\n  background-color: rgba(161, 161, 161, 0.04);\n}")
         button_layout.addWidget(self.closeButton)
 
         self.main_layout.addLayout(button_layout)
@@ -155,21 +153,20 @@ class StatsDialog(QDialog):
 
         self.ui.openFolderButton = self.openFolderButton
         self.ui.closeButton = self.closeButton
+        self.setup_awesome_icons()
 
         self.populate_stats()
     
     def setup_awesome_icons(self):
-        if not HAS_AWESOME:
-            return
         folder_icon = qta.icon('fa5s.folder-open')
-        if hasattr(self.ui, 'openFolderButton') and self.ui.openFolderButton:
-            self.ui.openFolderButton.setIcon(folder_icon)
-            self.ui.openFolderButton.setIconSize(QSize(16, 16))
+        self.openFolderButton.setIcon(folder_icon)
+        self.openFolderButton.setIconSize(QSize(20, 20))
+        self.openFolderButton.setMinimumHeight(36)
+
         close_icon = qta.icon('fa5s.times-circle')
-        if hasattr(self.ui, 'closeButton') and self.ui.closeButton:
-            self.ui.closeButton.setIcon(close_icon)
-            self.ui.closeButton.setIconSize(QSize(16, 16))
-        logger.info("Skipping icon addition to text labels to ensure proper display")
+        self.closeButton.setIcon(close_icon)
+        self.closeButton.setIconSize(QSize(20, 20))
+        self.closeButton.setMinimumHeight(36)
     
     def open_last_folder(self):
         if self.last_folder and os.path.exists(self.last_folder):

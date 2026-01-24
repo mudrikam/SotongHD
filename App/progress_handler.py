@@ -1,4 +1,6 @@
 from PySide6.QtCore import QObject, QTimer
+import re
+from pathlib import Path
 
 class ProgressHandler(QObject):
     def __init__(self, app):
@@ -22,11 +24,37 @@ class ProgressUIManager:
         self.update_timer.timeout.connect(self._update_progress_ui)
         self.pending_progress_message = None
         self.pending_progress_percentage = None
+        self._max_message_length = 60
     
+    def _shorten_filename(self, filename: str, max_len: int) -> str:
+        base, ext = Path(filename).stem, Path(filename).suffix
+        if len(base) + len(ext) <= max_len:
+            return base + ext
+        keep_len = max_len - len(ext) - 3
+        if keep_len <= 0:
+            return (base + ext)[:max_len-3] + '...'
+        left = int(keep_len * 0.6)
+        right = keep_len - left
+        return base[:left] + '...' + base[-right:] + ext
+
+    def _truncate_message(self, message: str) -> str:
+        if not message:
+            return message
+        # detect filenames in message and shorten them
+        pattern = re.compile(r"([\w\W]{1,200}?\.(?:jpg|jpeg|png|bmp|gif))", re.IGNORECASE)
+        def repl(m):
+            fn = m.group(1)
+            shortened = self._shorten_filename(Path(fn).name, max_len=40)
+            return shortened
+        new_msg = pattern.sub(repl, message)
+        if len(new_msg) > self._max_message_length:
+            return new_msg[:self._max_message_length-3] + '...'
+        return new_msg
+
     def update_progress(self, message, percentage=None):
         if not self.progress_bar:
             return
-        self.pending_progress_message = message
+        self.pending_progress_message = self._truncate_message(message)
         self.pending_progress_percentage = percentage
         if not self.update_timer.isActive():
             self.update_timer.start(50)

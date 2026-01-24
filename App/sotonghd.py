@@ -384,7 +384,7 @@ class SotongHDApp(QMainWindow):
                     except Exception as e:
                         logger.peringatan(f"Could not set executable permission: {e}")
             
-            logger.info(f"Using ChromeDriver at: {chromedriver_path}")
+
             
             self.progress_signal = ProgressSignal()
             self.progress_signal.progress.connect(self.progress_handler.handle_progress)
@@ -634,7 +634,7 @@ class SotongHDApp(QMainWindow):
     
     def stop_processing(self):
         """Hentikan pemrosesan dan reset UI"""
-        logger.info("Menghentikan pemrosesan berdasarkan permintaan pengguna")
+        logger.info("Menghentikan pemrosesan atas permintaan user")
         
         if confirm_stop_processing(self):
             if hasattr(self, 'image_processor'):
@@ -645,9 +645,9 @@ class SotongHDApp(QMainWindow):
             
             if self.progress_bar:
                 self.progress_bar.setValue(0)
-                self.progress_bar.setFormat("Proses dibatalkan oleh pengguna")
+                self.progress_bar.setFormat("Proses dibatalkan oleh user")
             
-            logger.peringatan("Proses dibatalkan oleh pengguna")
+            logger.peringatan("Proses dibatalkan oleh user")
     
     def reset_ui_buttons(self):
         if self.stopButton:
