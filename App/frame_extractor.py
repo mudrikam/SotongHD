@@ -1,12 +1,14 @@
 import os
 import subprocess
 import hashlib
+import json
 from fractions import Fraction
 from pathlib import Path
 import threading
 import shutil
 import queue
 import re
+from typing import Tuple
 from .logger import logger
 
 class VideoFrameExtractor:
@@ -39,7 +41,7 @@ class VideoFrameExtractor:
         h.update(str(int(stat.st_mtime)).encode('utf-8'))
         return h.hexdigest()
 
-    def _get_total_frames(self, video_path: str) -> int:
+    def _get_total_frames(self, video_path: str) -> Tuple[int, float]:
         cmd = [self.ffprobe_path, '-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=duration,r_frame_rate', '-of', 'default=noprint_wrappers=1:nokey=1', video_path]
         proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         if proc.returncode != 0:
@@ -81,7 +83,7 @@ class VideoFrameExtractor:
         if total_frames <= 0:
             logger.kesalahan("Calculated zero frames", f"duration={duration}, fps={fps}")
             raise ValueError("Unable to determine total frames for video")
-        return total_frames
+        return total_frames, fps
 
     def extract_frames(self, video_path: str, out_root: str):
         self._ensure_tools()
@@ -101,8 +103,21 @@ class VideoFrameExtractor:
             logger.info("Removed existing output directory", str(out_dir))
         os.makedirs(out_dir, exist_ok=False)
 
-        total_frames = self._get_total_frames(video_path)
+        total_frames, fps = self._get_total_frames(video_path)
         self._emit_progress(f"Ekstrak frame: {Path(video_path).name}", 0)
+
+        # Save metadata for downstream processes (e.g., merging)
+        try:
+            meta = {
+                "source_video": os.path.abspath(video_path),
+                "fps": fps,
+                "total_frames": total_frames
+            }
+            with open(os.path.join(out_dir, 'meta.json'), 'w', encoding='utf-8') as mf:
+                json.dump(meta, mf)
+        except Exception as e:
+            logger.kesalahan("Gagal menulis meta file", str(e))
+            raise
 
         cmd = [self.ffmpeg_path, '-hide_banner', '-progress', 'pipe:1', '-i', video_path, '-vsync', '0', os.path.join(out_dir, 'frame_%08d.png')]
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1)
