@@ -8,8 +8,10 @@ from PySide6.QtGui import QIcon, QPixmap, QDragEnterEvent, QDropEvent
 from PySide6.QtCore import Qt, QTimer, QSize, QUrl, Signal, QObject
 from PySide6.QtWidgets import QFrame, QSpacerItem
 from pathlib import Path
+import threading
 
 from .background_process import ImageProcessor, ProgressSignal, FileUpdateSignal
+from .frame_extractor import VideoFrameExtractor
 from .logger import logger
 from .ui_helpers import (ScalableImageLabel, center_window_on_screen, setup_drag_drop_style, 
                        setup_format_toggle, set_application_icon)
@@ -613,6 +615,12 @@ class SotongHDApp(QMainWindow):
             except Exception:
                 pass
 
+        video_exts = {'.mp4', '.mov', '.mkv', '.avi', '.webm', '.m4v'}
+        video_files = [p for p in file_paths if Path(p).suffix.lower() in video_exts and Path(p).is_file()]
+        if video_files:
+            self.start_video_extraction(video_files)
+            return
+
         self.image_processor.start_processing(file_paths)
         
         self.check_processor_thread()
@@ -628,6 +636,49 @@ class SotongHDApp(QMainWindow):
         else:
             QApplication.processEvents()
             QTimer.singleShot(100, self.check_processor_thread)
+
+    def start_video_extraction(self, video_files):
+        if not hasattr(self, 'progress_signal') or self.progress_signal is None:
+            self.progress_signal = ProgressSignal()
+            self.progress_signal.progress.connect(self.progress_handler.handle_progress)
+
+        out_root = os.path.join(self.base_dir, 'temp', 'video_upscale')
+        os.makedirs(out_root, exist_ok=True)
+        logger.info("Video upscale temp root:", out_root)
+
+        logger.info(f"Mulai ekstrak frame dari {len(video_files)} video(s)")
+
+        self.video_extractor = VideoFrameExtractor(self.base_dir, progress_signal=self.progress_signal)
+        self.video_thread = threading.Thread(target=self._run_extraction_thread, args=(self.video_extractor, video_files, out_root))
+        self.video_thread.daemon = True
+        self.video_thread.start()
+
+        self.check_video_thread()
+
+    def _run_extraction_thread(self, extractor, video_paths, out_root):
+        for video_path in video_paths:
+            try:
+                logger.info(f"Ekstrak: {video_path}")
+                extractor.extract_frames(video_path, out_root)
+            except Exception as e:
+                logger.kesalahan("Ekstraksi frame gagal", str(e))
+                print(f"Error: Ekstraksi frame gagal untuk {video_path}: {e}")
+                # proceed to next video deterministically
+                continue
+        return
+
+    def check_video_thread(self):
+        if hasattr(self, 'video_thread') and self.video_thread is not None and self.video_thread.is_alive():
+            QApplication.processEvents()
+            QTimer.singleShot(200, self.check_video_thread)
+            return
+
+        # finished or not started
+        if hasattr(self, 'video_extractor') and self.video_extractor is not None:
+            logger.sukses("Ekstraksi video selesai atau dihentikan")
+        self.video_extractor = None
+        self.video_thread = None
+        self.reset_ui_buttons()
     
     def stop_processing(self):
         """Hentikan pemrosesan dan reset UI"""
@@ -636,6 +687,13 @@ class SotongHDApp(QMainWindow):
         if confirm_stop_processing(self):
             if hasattr(self, 'image_processor'):
                 self.image_processor.stop_processing()
+            if hasattr(self, 'video_extractor') and getattr(self, 'video_extractor') is not None:
+                logger.info("Menghentikan ekstraksi video atas permintaan user")
+                self.video_extractor.stop()
+                if hasattr(self, 'video_thread') and self.video_thread is not None and self.video_thread.is_alive():
+                    self.video_thread.join(5)
+                self.video_extractor = None
+                self.video_thread = None
             
             self.restore_title_label()
             self.reset_ui_buttons()

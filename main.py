@@ -10,6 +10,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
 from App.tools_checker import check_tools
+from App.temp_cleanup import clean_temp
 
 def get_platform_info():
     system = platform.system().lower()
@@ -99,6 +100,12 @@ def main():
     icon_path = set_app_icon(BASE_DIR)
 
     sys.path.insert(0, BASE_DIR)
+
+    try:
+        clean_temp(BASE_DIR)
+    except Exception as e:
+        print(f"Error: Failed to clean temp directory: {e}")
+        return 1
 
     try:
         from App.sotonghd import run_app
