@@ -14,6 +14,9 @@ class ConfigManager:
             "batch_size": 1,
             "headless": True,
             "incognito": True,
+            "ffmpeg_url": "",
+            "ffmpeg_size_mb": None,
+            "chromedriver_url_win64": "",
         }
         
         if os.path.exists(self.config_file):
