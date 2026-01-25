@@ -16,14 +16,16 @@ from .config_manager import ConfigManager
 
 class VideoUpscalerProcess:
     def __init__(self, base_dir: str, chromedriver_path: str | None = None, config_manager: ConfigManager | None = None,
-                 headless: bool | None = None, incognito: bool | None = None, progress_signal: ProgressSignal | None = None):
+                 headless: bool | None = None, incognito: bool | None = None, progress_signal: ProgressSignal | None = None,
+                 file_update_signal: FileUpdateSignal | None = None):
         self.base_dir = os.path.abspath(base_dir)
         self.chromedriver_path = chromedriver_path
         self.config_manager = config_manager or ConfigManager(self.base_dir)
         self.headless = headless
         self.incognito = incognito
         self.progress_signal = progress_signal or ProgressSignal()
-        self.file_update_signal = FileUpdateSignal()
+        # allow passing in an external FileUpdateSignal (so UI can react to file updates)
+        self.file_update_signal = file_update_signal or FileUpdateSignal()
         self.processor = ImageProcessor(
             chromedriver_path=self.chromedriver_path,
             progress_signal=self.progress_signal,

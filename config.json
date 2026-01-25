@@ -5,7 +5,7 @@
   "chromedriver_size_mb": 171,
   "ffmpeg_url": "https://github.com/mudrikam/ffmpeg-for-image-tea/archive/refs/heads/main.zip",
   "ffmpeg_size_mb": 103,
-  "batch_size": 10,
+  "batch_size": 20,
   "headless": true,
   "incognito": true
 }

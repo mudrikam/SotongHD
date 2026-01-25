@@ -131,9 +131,9 @@ class SotongHDApp(QMainWindow):
         self.batchSpinner = QSpinBox(central_widget)
         self.batchSpinner.setObjectName("batchSpinner")
         self.batchSpinner.setMinimum(1)
-        self.batchSpinner.setMaximum(10)
+        self.batchSpinner.setMaximum(20)
         self.batchSpinner.setValue(1)
-        self.batchSpinner.setToolTip("Ukuran batch saat memproses file (1-10)")
+        self.batchSpinner.setToolTip("Ukuran batch saat memproses file (1-20)")
         self.batchSpinner.setFixedWidth(80)
         controls_layout.addWidget(self.batchSpinner)
 
@@ -713,7 +713,8 @@ class SotongHDApp(QMainWindow):
                 config_manager=self.config_manager,
                 headless=headless,
                 incognito=incognito,
-                progress_signal=getattr(self, 'progress_signal', None)
+                progress_signal=getattr(self, 'progress_signal', None),
+                file_update_signal=getattr(self, 'file_update_signal', None)
             )
 
             # capture local reference to avoid race with stop/reset
