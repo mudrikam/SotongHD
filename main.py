@@ -101,11 +101,7 @@ def main():
 
     sys.path.insert(0, BASE_DIR)
 
-    try:
-        clean_temp(BASE_DIR)
-    except Exception as e:
-        print(f"Error: Failed to clean temp directory: {e}")
-        return 1
+
 
     try:
         from App.sotonghd import run_app

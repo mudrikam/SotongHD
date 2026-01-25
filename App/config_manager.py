@@ -14,6 +14,8 @@ class ConfigManager:
             "batch_size": 1,
             "headless": True,
             "incognito": True,
+            "mute_audio": True,
+            "processing_hang_timeout": 300,
             "ffmpeg_url": "",
             "ffmpeg_size_mb": None,
             "chromedriver_url_win64": "",
@@ -90,4 +92,29 @@ class ConfigManager:
         if format_type.lower() not in ["png", "jpg"]:
             raise ValueError("Format must be 'png' or 'jpg'")
         self.config["output_format"] = format_type.lower()
+        self.save_config()
+
+    def get_mute_audio(self) -> bool:
+        val = self.config.get("mute_audio", False)
+        if val is None:
+            return False
+        return bool(val)
+
+    def set_mute_audio(self, value: bool):
+        self.config["mute_audio"] = bool(value)
+        self.save_config()
+
+    def get_processing_hang_timeout(self) -> int:
+        try:
+            val = int(self.config.get("processing_hang_timeout", 300) or 300)
+            if val < 10:
+                return 10
+            return val
+        except Exception:
+            return 300
+
+    def set_processing_hang_timeout(self, seconds: int):
+        if int(seconds) < 10:
+            raise ValueError("Timeout must be >= 10 seconds")
+        self.config["processing_hang_timeout"] = int(seconds)
         self.save_config()

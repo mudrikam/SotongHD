@@ -151,6 +151,12 @@ class SotongHDApp(QMainWindow):
         self.incognitoCheck.setToolTip("Jalankan browser dalam mode incognito (True/False)")
         controls_layout.addWidget(self.incognitoCheck)
 
+        self.muteCheck = QCheckBox("Hilangkan Audio", central_widget)
+        self.muteCheck.setObjectName("muteCheck")
+        self.muteCheck.setChecked(True)
+        self.muteCheck.setToolTip("Hilangkan audio dari video output jika dicentang")
+        controls_layout.addWidget(self.muteCheck)
+
         main_vlayout.addLayout(controls_layout)
 
         self.log_display = QTextEdit(central_widget)
@@ -254,6 +260,7 @@ class SotongHDApp(QMainWindow):
         self.batchLabel = getattr(self, 'batchLabel', self.findChild(QLabel, "batchLabel"))
         self.headlessCheck = getattr(self, 'headlessCheck', self.findChild(QCheckBox, "headlessCheck"))
         self.incognitoCheck = getattr(self, 'incognitoCheck', self.findChild(QCheckBox, "incognitoCheck"))
+        self.muteCheck = getattr(self, 'muteCheck', self.findChild(QCheckBox, "muteCheck"))
         
         self.config_manager = ConfigManager(self.base_dir)
         try:
@@ -268,6 +275,10 @@ class SotongHDApp(QMainWindow):
             incognito_val = self.config_manager.get_incognito()
             if hasattr(self, 'incognitoCheck') and incognito_val is not None:
                 self.incognitoCheck.setChecked(bool(incognito_val))
+
+            mute_val = self.config_manager.get_mute_audio()
+            if hasattr(self, 'muteCheck') and mute_val is not None:
+                self.muteCheck.setChecked(bool(mute_val))
         except Exception:
             pass
         
@@ -337,6 +348,9 @@ class SotongHDApp(QMainWindow):
 
             if hasattr(self, 'incognitoCheck') and self.incognitoCheck:
                 self.incognitoCheck.stateChanged.connect(lambda s: self.config_manager.set_incognito(bool(self.incognitoCheck.isChecked())))
+
+            if hasattr(self, 'muteCheck') and self.muteCheck:
+                self.muteCheck.stateChanged.connect(lambda s: self.config_manager.set_mute_audio(bool(self.muteCheck.isChecked())))
         except Exception:
             pass
     

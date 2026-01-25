@@ -45,11 +45,11 @@ class VideoFrameExtractor:
         cmd = [self.ffprobe_path, '-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=duration,r_frame_rate', '-of', 'default=noprint_wrappers=1:nokey=1', video_path]
         proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         if proc.returncode != 0:
-            logger.kesalahan("ffprobe failed", proc.stderr.strip())
+            logger.kesalahan("ffprobe gagal", proc.stderr.strip())
             raise RuntimeError(f"ffprobe failed: {proc.stderr.strip()}")
         lines = [l.strip() for l in proc.stdout.splitlines() if l.strip()]
         if len(lines) < 2:
-            logger.kesalahan("ffprobe returned insufficient data", proc.stdout)
+            logger.kesalahan("ffprobe mengembalikan data tidak memadai", proc.stdout)
             raise RuntimeError("ffprobe did not return duration and frame rate")
         duration_str = None
         r_frame_rate = None
@@ -66,22 +66,22 @@ class VideoFrameExtractor:
                     else:
                         duration_str = ln
         if duration_str is None or r_frame_rate is None:
-            logger.kesalahan("ffprobe returned unexpected output", proc.stdout)
+            logger.kesalahan("ffprobe mengembalikan output tidak terduga", proc.stdout)
             raise RuntimeError("Unable to parse duration or frame rate from ffprobe output")
         try:
             duration = float(duration_str)
         except Exception:
-            logger.kesalahan("Invalid duration from ffprobe", duration_str)
+            logger.kesalahan("Durasi tidak valid dari ffprobe", duration_str)
             raise ValueError(f"Invalid duration from ffprobe: {duration_str}")
         try:
             fr = Fraction(r_frame_rate)
             fps = float(fr)
         except Exception:
-            logger.kesalahan("Invalid frame rate from ffprobe", r_frame_rate)
+            logger.kesalahan("Frame rate tidak valid dari ffprobe", r_frame_rate)
             raise ValueError(f"Invalid frame rate from ffprobe: {r_frame_rate}")
         total_frames = int(round(duration * fps))
         if total_frames <= 0:
-            logger.kesalahan("Calculated zero frames", f"duration={duration}, fps={fps}")
+            logger.kesalahan("Hasil perhitungan frame = 0", f"duration={duration}, fps={fps}")
             raise ValueError("Unable to determine total frames for video")
         return total_frames, fps
 
@@ -90,21 +90,27 @@ class VideoFrameExtractor:
         video_path = os.path.abspath(video_path)
         hash_name = self._compute_hash_dir(video_path)
         out_dir = os.path.join(out_root, hash_name)
+        out_root_res = Path(out_root).resolve()
+        out_dir_res = Path(out_dir).resolve()
         if os.path.exists(out_dir):
-            out_root_res = Path(out_root).resolve()
-            out_dir_res = Path(out_dir).resolve()
             try:
                 out_dir_res.relative_to(out_root_res)
             except Exception as e:
                 logger.kesalahan("Output directory exists but is outside expected root", str(out_dir_res))
-                raise RuntimeError(f"Refusing to remove directory outside out_root: {out_dir_res}") from e
-            logger.info("Output directory exists; removing to overwrite", str(out_dir))
-            shutil.rmtree(str(out_dir_res))
-            logger.info("Removed existing output directory", str(out_dir))
-        os.makedirs(out_dir, exist_ok=False)
+                raise RuntimeError(f"Refusing to operate on directory outside out_root: {out_dir_res}") from e
+        else:
+            os.makedirs(out_dir, exist_ok=False)
 
         total_frames, fps = self._get_total_frames(video_path)
         self._emit_progress(f"Ekstrak frame: {Path(video_path).name}", 0)
+
+        # If there are existing frames, decide whether to skip extraction or continue to complete missing frames
+        existing_pngs = sorted(Path(out_dir).glob('frame_*.png'))
+        if existing_pngs:
+            if len(existing_pngs) >= total_frames:
+                logger.info("Ditemukan set frame lengkap; melewatkan ekstraksi", str(out_dir))
+                return out_dir
+            logger.info(f"Ditemukan set frame parsial ({len(existing_pngs)}/{total_frames}); melanjutkan ekstraksi", str(out_dir))
 
         # Save metadata for downstream processes (e.g., merging)
         try:
@@ -197,14 +203,14 @@ class VideoFrameExtractor:
         finally:
             rc = proc.wait()
             if rc != 0:
-                logger.kesalahan("ffmpeg failed during extraction", '\n'.join(stderr_accum))
-                raise RuntimeError(f"ffmpeg failed: {'; '.join(stderr_accum[-5:])}")
+                logger.kesalahan("ffmpeg gagal saat ekstraksi", '\n'.join(stderr_accum))
+                raise RuntimeError(f"ffmpeg gagal: {'; '.join(stderr_accum[-5:])}")
 
         # verify frames exist
         pngs = sorted(Path(out_dir).glob('frame_*.png'))
         if not pngs:
-            logger.kesalahan("No frames extracted", out_dir)
-            raise FileNotFoundError(f"No frames extracted into: {out_dir}")
+            logger.kesalahan("Tidak ada frame yang diekstrak", out_dir)
+            raise FileNotFoundError(f"Tidak ada frame yang diekstrak ke: {out_dir}")
 
         self._emit_progress(f"Ekstraksi selesai: {Path(video_path).name}", 100)
         logger.sukses("Ekstrak frame selesai", out_dir)

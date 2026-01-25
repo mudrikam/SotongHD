@@ -34,14 +34,14 @@ class ImageProcessor:
             self.chromedriver_path = os.path.join(base_dir, "driver", driver_filename)
         
         if not os.path.exists(self.chromedriver_path):
-            logger.kesalahan(f"ChromeDriver not found at: {self.chromedriver_path}")
-            raise FileNotFoundError(f"ChromeDriver not found at: {self.chromedriver_path}")
+            logger.kesalahan(f"ChromeDriver tidak ditemukan di: {self.chromedriver_path}")
+            raise FileNotFoundError(f"ChromeDriver tidak ditemukan di: {self.chromedriver_path}")
         
         if sys.platform != 'win32':
             import stat
             current_permissions = os.stat(self.chromedriver_path).st_mode
             if not (current_permissions & stat.S_IXUSR):
-                logger.info(f"Making chromedriver executable: {self.chromedriver_path}")
+                logger.info(f"Menetapkan izin eksekusi pada ChromeDriver: {self.chromedriver_path}")
                 os.chmod(self.chromedriver_path, current_permissions | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
         self.progress_callback = progress_callback
         self.progress_signal = progress_signal
@@ -58,6 +58,9 @@ class ImageProcessor:
         self.headless = headless
         self.incognito = incognito
         self.batch_size = 1
+        # activity timestamp used to detect processing hangs
+        import time as _time
+        self.last_activity_time = _time.time()
         
         
     def update_progress(self, message: str, percentage: int = None, current: int = None, total: int = None):
@@ -93,6 +96,14 @@ class ImageProcessor:
             self.progress_signal.progress.emit(message, percentage if percentage is not None else 0)
         elif self.progress_callback:
             self.progress_callback(message, percentage)
+
+        # update last activity time to indicate progress
+        try:
+            import time as _time
+            self.last_activity_time = _time.time()
+        except Exception:
+            pass
+
         is_milestone = percentage is not None and (percentage == 0 or percentage == 100 or percentage % 25 == 0)
         is_important_message = "berhasil" in message.lower() or "gagal" in message.lower() or "error" in message.lower()
         if is_milestone or is_important_message:
@@ -466,6 +477,8 @@ class ImageProcessor:
                                     "end_time": datetime.now(),
                                     "duration": (datetime.now() - start_times[idx]).total_seconds()
                                 }
+                                # update activity timestamp
+                                self.last_activity_time = time.time()
 
                                 logger.sukses(f"Berhasil menyimpan gambar enhancement", enhanced_path)
 
@@ -493,6 +506,8 @@ class ImageProcessor:
                                     "end_time": datetime.now(),
                                     "duration": (datetime.now() - start_times[idx]).total_seconds()
                                 }
+                                # update activity timestamp
+                                self.last_activity_time = time.time()
                                 logger.kesalahan(f"Gagal mengunduh hasil. Status code: {response.status_code}", file_name)
                                 try:
                                     d.quit()
@@ -515,14 +530,50 @@ class ImageProcessor:
                             "end_time": datetime.now(),
                             "duration": (datetime.now() - start_times[idx]).total_seconds()
                         }
+                        # update activity timestamp
+                        self.last_activity_time = time.time()
                         try:
                             d.quit()
-                        except Exception:
-                            pass
+                        except Exception as inner_e:
+                            logger.kesalahan("Gagal menutup driver slot", str(inner_e))
                         drivers[idx] = None
                         pending -= 1
 
                 if pending > 0:
+                    # detect processing hang based on last activity timestamp
+                    hang_timeout = 300
+                    if self.config_manager and hasattr(self.config_manager, 'get_processing_hang_timeout'):
+                        try:
+                            hang_timeout = int(self.config_manager.get_processing_hang_timeout())
+                        except Exception as e:
+                            logger.peringatan(f"Gagal membaca konfigurasi timeout: {e}")
+
+                    idle = time.time() - getattr(self, 'last_activity_time', time.time())
+
+                    if idle > hang_timeout:
+                        logger.kesalahan("Timeout pemrosesan terdeteksi", f"Tidak ada aktivitas dalam {idle:.1f}s (> {hang_timeout}s)")
+                        # mark remaining pending items as failed and attempt to close drivers
+                        for j, d2 in enumerate(drivers):
+                            if d2 is None:
+                                continue
+                            fp = chunk[j]
+                            chunk_results[j] = {
+                                "file_path": fp,
+                                "success": False,
+                                "enhanced_path": None,
+                                "error": "Timeout: tidak ada progres dalam durasi yang ditentukan",
+                                "start_time": start_times[j],
+                                "end_time": datetime.now(),
+                                "duration": (datetime.now() - start_times[j]).total_seconds()
+                            }
+                            try:
+                                d2.quit()
+                            except Exception as inner_e:
+                                logger.kesalahan("Gagal menutup driver saat timeout", f"{fp} - {str(inner_e)}")
+                            drivers[j] = None
+                            pending -= 1
+                        break
+
                     time.sleep(self.polling_interval)
 
             for idx, file_path in enumerate(chunk):
@@ -543,6 +594,16 @@ class ImageProcessor:
                     self.total_processed += 1
                 else:
                     self.total_failed += 1
+
+            # CLEANUP: ensure any remaining drivers are properly closed before next chunk/batch
+            for idx_d, d in enumerate(drivers):
+                if d is not None:
+                    try:
+                        logger.debug(f"Menutup driver slot {idx_d} pasca-batch cleanup")
+                        d.quit()
+                    except Exception as e:
+                        logger.peringatan("Gagal menutup driver saat cleanup chunk", f"slot {idx_d} - {str(e)}")
+                    drivers[idx_d] = None
         
         self.end_time = datetime.now()
         
