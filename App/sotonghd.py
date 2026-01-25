@@ -8,8 +8,11 @@ from PySide6.QtGui import QIcon, QPixmap, QDragEnterEvent, QDropEvent
 from PySide6.QtCore import Qt, QTimer, QSize, QUrl, Signal, QObject
 from PySide6.QtWidgets import QFrame, QSpacerItem
 from pathlib import Path
+import threading
 
 from .background_process import ImageProcessor, ProgressSignal, FileUpdateSignal
+from .frame_extractor import VideoFrameExtractor
+from .video_upscaler_process import VideoUpscalerProcess
 from .logger import logger
 from .ui_helpers import (ScalableImageLabel, center_window_on_screen, setup_drag_drop_style, 
                        setup_format_toggle, set_application_icon)
@@ -17,6 +20,7 @@ from .progress_handler import ProgressHandler, ProgressUIManager
 from .file_processor import (is_image_file, open_folder_dialog, open_files_dialog, 
                            open_whatsapp_group, show_statistics, confirm_stop_processing)
 from .config_manager import ConfigManager
+import json
 
 try:
     import qtawesome as qta
@@ -127,9 +131,9 @@ class SotongHDApp(QMainWindow):
         self.batchSpinner = QSpinBox(central_widget)
         self.batchSpinner.setObjectName("batchSpinner")
         self.batchSpinner.setMinimum(1)
-        self.batchSpinner.setMaximum(10)
+        self.batchSpinner.setMaximum(20)
         self.batchSpinner.setValue(1)
-        self.batchSpinner.setToolTip("Ukuran batch saat memproses file (1-10)")
+        self.batchSpinner.setToolTip("Ukuran batch saat memproses file (1-20)")
         self.batchSpinner.setFixedWidth(80)
         controls_layout.addWidget(self.batchSpinner)
 
@@ -146,6 +150,12 @@ class SotongHDApp(QMainWindow):
         self.incognitoCheck.setChecked(True)
         self.incognitoCheck.setToolTip("Jalankan browser dalam mode incognito (True/False)")
         controls_layout.addWidget(self.incognitoCheck)
+
+        self.muteCheck = QCheckBox("Hilangkan Audio", central_widget)
+        self.muteCheck.setObjectName("muteCheck")
+        self.muteCheck.setChecked(True)
+        self.muteCheck.setToolTip("Hilangkan audio dari video output jika dicentang")
+        controls_layout.addWidget(self.muteCheck)
 
         main_vlayout.addLayout(controls_layout)
 
@@ -250,6 +260,7 @@ class SotongHDApp(QMainWindow):
         self.batchLabel = getattr(self, 'batchLabel', self.findChild(QLabel, "batchLabel"))
         self.headlessCheck = getattr(self, 'headlessCheck', self.findChild(QCheckBox, "headlessCheck"))
         self.incognitoCheck = getattr(self, 'incognitoCheck', self.findChild(QCheckBox, "incognitoCheck"))
+        self.muteCheck = getattr(self, 'muteCheck', self.findChild(QCheckBox, "muteCheck"))
         
         self.config_manager = ConfigManager(self.base_dir)
         try:
@@ -264,6 +275,10 @@ class SotongHDApp(QMainWindow):
             incognito_val = self.config_manager.get_incognito()
             if hasattr(self, 'incognitoCheck') and incognito_val is not None:
                 self.incognitoCheck.setChecked(bool(incognito_val))
+
+            mute_val = self.config_manager.get_mute_audio()
+            if hasattr(self, 'muteCheck') and mute_val is not None:
+                self.muteCheck.setChecked(bool(mute_val))
         except Exception:
             pass
         
@@ -333,6 +348,9 @@ class SotongHDApp(QMainWindow):
 
             if hasattr(self, 'incognitoCheck') and self.incognitoCheck:
                 self.incognitoCheck.stateChanged.connect(lambda s: self.config_manager.set_incognito(bool(self.incognitoCheck.isChecked())))
+
+            if hasattr(self, 'muteCheck') and self.muteCheck:
+                self.muteCheck.stateChanged.connect(lambda s: self.config_manager.set_mute_audio(bool(self.muteCheck.isChecked())))
         except Exception:
             pass
     
@@ -370,8 +388,8 @@ class SotongHDApp(QMainWindow):
                 error_msg += f"Base directory: {base_dir}\n"
                 error_msg += "Please run main.py first to download ChromeDriver."
                 logger.kesalahan("ChromeDriver tidak ditemukan", chromedriver_path)
-                QMessageBox.critical(self, "Error", error_msg)
-                return
+                print(error_msg)
+                raise FileNotFoundError(error_msg)
             
 
             if sys.platform != 'win32':
@@ -400,11 +418,8 @@ class SotongHDApp(QMainWindow):
                 headless=(bool(self.headlessCheck.isChecked()) if hasattr(self, 'headlessCheck') else None),
                 incognito=(bool(self.incognitoCheck.isChecked()) if hasattr(self, 'incognitoCheck') else None)
             )
-            try:
-                if hasattr(self, 'batchSpinner') and self.batchSpinner:
-                    self.image_processor.batch_size = int(self.batchSpinner.value())
-            except Exception:
-                pass
+            if hasattr(self, 'batchSpinner') and self.batchSpinner:
+                self.image_processor.batch_size = int(self.batchSpinner.value())
             logger.sukses("Aplikasi SotongHD siap digunakan")
             logger.info("Untuk memulai, seret dan lepas gambar atau folder ke area drop")
         except Exception as e:
@@ -616,6 +631,12 @@ class SotongHDApp(QMainWindow):
             except Exception:
                 pass
 
+        video_exts = {'.mp4', '.mov', '.mkv', '.avi', '.webm', '.m4v'}
+        video_files = [p for p in file_paths if Path(p).suffix.lower() in video_exts and Path(p).is_file()]
+        if video_files:
+            self.start_video_extraction(video_files)
+            return
+
         self.image_processor.start_processing(file_paths)
         
         self.check_processor_thread()
@@ -631,6 +652,241 @@ class SotongHDApp(QMainWindow):
         else:
             QApplication.processEvents()
             QTimer.singleShot(100, self.check_processor_thread)
+
+    def start_video_extraction(self, video_files):
+        if not hasattr(self, 'progress_signal') or self.progress_signal is None:
+            self.progress_signal = ProgressSignal()
+            self.progress_signal.progress.connect(self.progress_handler.handle_progress)
+
+        out_root = os.path.join(self.base_dir, 'temp', 'video_upscale')
+        os.makedirs(out_root, exist_ok=True)
+        logger.info("Video upscale temp root:", out_root)
+
+        logger.info(f"Mulai ekstrak frame dari {len(video_files)} video(s)")
+
+        self.video_extractor = VideoFrameExtractor(self.base_dir, progress_signal=self.progress_signal)
+        self.video_thread = threading.Thread(target=self._run_extraction_thread, args=(self.video_extractor, video_files, out_root))
+        self.video_thread.daemon = True
+        self.video_thread.start()
+
+        self.check_video_thread()
+
+    def _run_extraction_thread(self, extractor, video_paths, out_root):
+        # Collect stats per video and aggregate at the end to show a single dialog
+        video_stats_list = []
+
+        for video_path in video_paths:
+            out_dir = None
+            try:
+                logger.info(f"Ekstrak: {video_path}")
+                out_dir = extractor.extract_frames(video_path, out_root)
+            except Exception as e:
+                logger.kesalahan("Ekstraksi frame gagal", str(e))
+                print(f"Error: Ekstraksi frame gagal untuk {video_path}: {e}")
+                # derive expected UPSCALE folder from source video path
+                expected_upscale = None
+                try:
+                    expected_upscale = str(Path(video_path).parent / 'UPSCALE')
+                except Exception:
+                    expected_upscale = str(video_path)
+                # record a deterministic failure stat for this video
+                video_stats_list.append({
+                    'total_processed': 0,
+                    'total_failed': 0,
+                    'total_duration': 0,
+                    'start_time': None,
+                    'end_time': None,
+                    'results': [],
+                    'processed_folders': [expected_upscale],
+                })
+                continue
+
+            driver_filename = 'chromedriver.exe' if sys.platform == 'win32' else 'chromedriver'
+            chromedriver_path = os.path.abspath(os.path.join(self.base_dir, "driver", driver_filename))
+
+            if not os.path.exists(chromedriver_path):
+                logger.kesalahan("ChromeDriver tidak ditemukan untuk proses upscale video", chromedriver_path)
+                print(f"Error: ChromeDriver tidak ditemukan: {chromedriver_path}")
+                video_stats_list.append({
+                    'total_processed': 0,
+                    'total_failed': 0,
+                    'total_duration': 0,
+                    'start_time': None,
+                    'end_time': None,
+                    'results': [],
+                    'processed_folders': [str(out_dir) if out_dir is not None else str(video_path)],
+                })
+                continue
+
+            headless = (bool(self.headlessCheck.isChecked()) if hasattr(self, 'headlessCheck') else None)
+            incognito = (bool(self.incognitoCheck.isChecked()) if hasattr(self, 'incognitoCheck') else None)
+
+            self.video_upscaler = VideoUpscalerProcess(
+                base_dir=self.base_dir,
+                chromedriver_path=chromedriver_path,
+                config_manager=self.config_manager,
+                headless=headless,
+                incognito=incognito,
+                progress_signal=getattr(self, 'progress_signal', None),
+                file_update_signal=getattr(self, 'file_update_signal', None)
+            )
+
+            # capture local reference to avoid race with stop/reset
+            upscaler = self.video_upscaler
+
+            try:
+                upscaler.upscale_hash_sync(out_dir)
+                # use local reference for stats collection to avoid NoneType if self.video_upscaler is cleared elsewhere
+                if not getattr(upscaler, 'processor', None):
+                    logger.kesalahan("Upscaler missing processor after run", str(out_dir))
+                    print(f"Error: Upscaler has no processor for {out_dir}")
+                    video_stats_list.append({
+                        'total_processed': 0,
+                        'total_failed': 0,
+                        'total_duration': 0,
+                        'start_time': None,
+                        'end_time': None,
+                        'results': [],
+                        'processed_folders': [str(Path(video_path).parent / 'UPSCALE')],
+                    })
+                else:
+                    stats = upscaler.processor.get_statistics()
+
+                    # map processed_folders to UPSCALE folder(s) of the source video
+                    meta_path = Path(out_dir) / 'meta.json'
+                    upscale_folder = None
+                    if meta_path.exists():
+                        with open(meta_path, 'r', encoding='utf-8') as mf:
+                            try:
+                                meta = json.load(mf)
+                                src_vid = meta.get('source_video')
+                                if src_vid:
+                                    upscale_folder = str(Path(src_vid).parent / 'UPSCALE')
+                            except Exception as e:
+                                logger.kesalahan("Gagal membaca meta untuk menentukan UPSCALE folder", str(e))
+                                print(f"Error reading meta.json for {out_dir}: {e}")
+                    if not upscale_folder:
+                        upscale_folder = str(Path(video_path).parent / 'UPSCALE')
+
+                    stats['processed_folders'] = [upscale_folder]
+                    print(f"Video processed: {video_path} - Success: {stats.get('total_processed')}, Failed: {stats.get('total_failed')}")
+                    logger.info(f"Video upscale completed", str(out_dir))
+                    video_stats_list.append(stats)
+            except Exception as e:
+                logger.kesalahan("Upscale video gagal", str(e))
+                print(f"Error: Upscale video gagal untuk {out_dir}: {e}")
+                # attempt to gather stats, if available; if not, record deterministic failure stat
+                upscale_folder = None
+                try:
+                    meta_path = Path(out_dir) / 'meta.json'
+                    if meta_path.exists():
+                        with open(meta_path, 'r', encoding='utf-8') as mf:
+                            meta = json.load(mf)
+                            src_vid = meta.get('source_video')
+                            if src_vid:
+                                upscale_folder = str(Path(src_vid).parent / 'UPSCALE')
+                except Exception as inner_e:
+                    logger.kesalahan("Gagal membaca meta.json setelah kegagalan", str(inner_e))
+                    print(f"Error reading meta.json during failure handling: {inner_e}")
+
+                if not upscale_folder:
+                    upscale_folder = str(Path(video_path).parent / 'UPSCALE')
+
+                if upscaler and getattr(upscaler, 'processor', None):
+                    try:
+                        stats = upscaler.processor.get_statistics()
+                        stats['processed_folders'] = [upscale_folder]
+                        video_stats_list.append(stats)
+                    except Exception as inner_e:
+                        logger.kesalahan("Gagal mengambil statistik setelah kegagalan", str(inner_e))
+                        print(f"Error collecting stats after failure: {inner_e}")
+                        video_stats_list.append({
+                            'total_processed': 0,
+                            'total_failed': 0,
+                            'total_duration': 0,
+                            'start_time': None,
+                            'end_time': None,
+                            'results': [],
+                            'processed_folders': [upscale_folder],
+                        })
+                else:
+                    video_stats_list.append({
+                        'total_processed': 0,
+                        'total_failed': 0,
+                        'total_duration': 0,
+                        'start_time': None,
+                        'end_time': None,
+                        'results': [],
+                        'processed_folders': [upscale_folder],
+                    })
+            finally:
+                # clear instance reference on self; local 'upscaler' retains the instance
+                self.video_upscaler = None
+
+        # aggregate stats across all videos and store for UI thread
+        if video_stats_list:
+            total_processed = sum(v.get('total_processed', 0) for v in video_stats_list)
+            total_failed = sum(v.get('total_failed', 0) for v in video_stats_list)
+            total_duration = sum(v.get('total_duration', 0) for v in video_stats_list)
+
+            start_times = [v.get('start_time') for v in video_stats_list if v.get('start_time')]
+            end_times = [v.get('end_time') for v in video_stats_list if v.get('end_time')]
+            agg_start = min(start_times) if start_times else None
+            agg_end = max(end_times) if end_times else None
+
+            processed_folders = []
+            results = []
+            for v in video_stats_list:
+                processed_folders.extend(v.get('processed_folders', []))
+                results.extend(v.get('results', []))
+
+            # For video batches, display counts per VIDEO (not per frame)
+            video_success_count = sum(1 for v in video_stats_list if v.get('total_processed', 0) > 0 and v.get('total_failed', 0) == 0)
+            video_failure_count = len(video_stats_list) - video_success_count
+
+            # Deduplicate processed_folders and keep order
+            seen = set()
+            uniq_folders = []
+            for p in processed_folders:
+                if p not in seen:
+                    seen.add(p)
+                    uniq_folders.append(p)
+
+            aggregated = {
+                'total_processed': video_success_count,
+                'total_failed': video_failure_count,
+                'total_duration': total_duration,
+                'start_time': agg_start,
+                'end_time': agg_end,
+                'results': results,
+                'processed_folders': uniq_folders,
+            }
+
+            print(f"All videos processed: total_success={total_processed}, total_failed={total_failed}")
+            logger.info("All videos processed", f"success={total_processed}, failed={total_failed}")
+            self.last_video_stats = aggregated
+
+        return
+
+    def check_video_thread(self):
+        if hasattr(self, 'video_thread') and self.video_thread is not None and self.video_thread.is_alive():
+            QApplication.processEvents()
+            QTimer.singleShot(200, self.check_video_thread)
+            return
+
+        # finished or not started
+        if hasattr(self, 'video_extractor') and self.video_extractor is not None:
+            logger.sukses("Ekstraksi video selesai atau dihentikan")
+        # If a video finished, show stats dialog (UI thread)
+        if hasattr(self, 'last_video_stats') and self.last_video_stats:
+            try:
+                show_statistics(self, self.last_video_stats)
+            finally:
+                self.last_video_stats = None
+
+        self.video_extractor = None
+        self.video_thread = None
+        self.reset_ui_buttons()
     
     def stop_processing(self):
         """Hentikan pemrosesan dan reset UI"""
@@ -639,6 +895,23 @@ class SotongHDApp(QMainWindow):
         if confirm_stop_processing(self):
             if hasattr(self, 'image_processor'):
                 self.image_processor.stop_processing()
+            if hasattr(self, 'video_extractor') and getattr(self, 'video_extractor') is not None:
+                logger.info("Menghentikan ekstraksi video atas permintaan user")
+                self.video_extractor.stop()
+                if hasattr(self, 'video_thread') and self.video_thread is not None and self.video_thread.is_alive():
+                    self.video_thread.join(5)
+                self.video_extractor = None
+                self.video_thread = None
+
+            if hasattr(self, 'video_upscaler') and getattr(self, 'video_upscaler') is not None:
+                logger.info("Menghentikan proses upscale video atas permintaan user")
+                try:
+                    self.video_upscaler.stop()
+                    if getattr(self.video_upscaler, 'thread', None) and self.video_upscaler.thread.is_alive():
+                        self.video_upscaler.thread.join(10)
+                except Exception as e:
+                    logger.kesalahan("Gagal menghentikan upscaler", str(e))
+                self.video_upscaler = None
             
             self.restore_title_label()
             self.reset_ui_buttons()

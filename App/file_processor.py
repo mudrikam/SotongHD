@@ -27,9 +27,9 @@ def open_folder_dialog(parent):
 def open_files_dialog(parent):
     file_paths, _ = QFileDialog.getOpenFileNames(
         parent,
-        "Select Images",
+        "Select Images or Videos",
         os.path.expanduser("~"),
-        "Image Files (*.jpg *.jpeg *.png *.bmp *.gif);;All Files (*)"
+        "Image and Video Files (*.jpg *.jpeg *.png *.bmp *.gif *.mp4 *.mov *.mkv *.avi *.webm *.m4v);;Image Files (*.jpg *.jpeg *.png *.bmp *.gif);;Video Files (*.mp4 *.mov *.mkv *.avi *.webm *.m4v);;All Files (*)"
     )
     
     if file_paths:

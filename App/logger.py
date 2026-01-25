@@ -1,6 +1,7 @@
 import os
 import sys
 import logging
+import re
 from datetime import datetime
 from pathlib import Path
 from PySide6.QtWidgets import QTextEdit
@@ -72,6 +73,29 @@ class SotongLogger:
         self.log_widget.setTextCursor(cursor)
         self.log_widget.ensureCursorVisible()
     
+    def _translate_message(self, msg: str) -> str:
+        # simple deterministic term mapping to produce technical Indonesian messages
+        replacements = [
+            (r"\bfail(?:ed)?\b", "gagal"),
+            (r"\bnot found\b", "tidak ditemukan"),
+            (r"\bno files found\b", "tidak ada file ditemukan"),
+            (r"\bmissing\b", "hilang"),
+            (r"\bskip(?:ping)?\b", "melewatkan"),
+            (r"\bstart(?:ing)?\b", "memulai"),
+            (r"\bcomplete(?:d)?\b", "selesai"),
+            (r"\bmerge\b", "gabung"),
+            (r"\berror\b", "kesalahan"),
+            (r"\bpermission\b", "izin"),
+            (r"\bexecutable\b", "eksekusi"),
+            (r"\bdriver\b", "driver"),
+            (r"\btimeout\b", "batas waktu"),
+            (r"\bprogress\b", "progres"),
+        ]
+        out = msg
+        for pat, repl in replacements:
+            out = re.sub(pat, repl, out, flags=re.IGNORECASE)
+        return out
+
     def _log(self, level, pesan, detail=None):
         if level < self.level:
             return
@@ -101,6 +125,12 @@ class SotongLogger:
             warna = self.WARNA['ungu']
             level_name = "debug"
             
+        # translate pesan to Indonesian technical phrasing deterministically
+        try:
+            pesan = self._translate_message(str(pesan))
+        except Exception:
+            pesan = str(pesan)
+
         log_message = f"[{timestamp}] {level_text}: {pesan}"
         if detail:
             log_message += f" - {detail}"
