@@ -80,9 +80,13 @@ def main():
     driver_filename = 'chromedriver.exe' if sys.platform == 'win32' else 'chromedriver'
     driver_path = os.path.join(BASE_DIR, 'driver', driver_filename)
     try:
-        check_tools(BASE_DIR)
+        tools_ok = check_tools(BASE_DIR)
     except Exception as e:
-        print(f"Warning: Tools check failed: {e}")
+        print(f"Error: Tools check failed: {e}")
+        return 1
+    if not tools_ok:
+        print("Error: Tools check reported missing/failed tools; aborting startup.")
+        return 1
 
     if sys.platform == "win32":
         try:

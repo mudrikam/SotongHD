@@ -8,6 +8,11 @@ import shutil
 import requests
 import zipfile
 import tempfile
+import time
+
+GREEN = '\x1b[32m'
+RED = '\x1b[31m'
+RESET = '\x1b[0m'
 
 from App.ffmpeg_downloader import ensure_ffmpeg_present, is_ffmpeg_present
 
@@ -41,7 +46,8 @@ def extract_version_from_url(url: str) -> tuple:
         return (0,)
     m = re.search(r'/([0-9]+(?:\.[0-9]+)*)/', url)
     if not m:
-        raise ValueError(f'Could not extract version from URL: {url}')
+        print(f'Warning: Could not extract version from URL: {url}')
+        return (0,)
     ver_str = m.group(1)
     return tuple(int(p) for p in ver_str.split('.'))
 
@@ -133,8 +139,15 @@ def ensure_chromedriver_present(base_dir: str) -> bool:
     with open(config_path, 'r', encoding='utf-8') as cf:
         cfg = json.load(cf)
     config_url_key = f'chromedriver_url_{platform_key}'
+    if config_url_key not in cfg and platform_key == 'win64' and 'chromedriver_url' in cfg:
+        config_url_key = 'chromedriver_url'
     local_url = cfg.get(config_url_key, '')
-    remote_url = get_chromedriver_link(platform_key)
+    if local_url:
+        remote_url = None
+        download_url = local_url
+    else:
+        remote_url = get_chromedriver_link(platform_key)
+        download_url = remote_url
     local_chrome_ver = get_local_chrome_version()
     if local_chrome_ver:
         local_major = local_chrome_ver[0]
@@ -153,7 +166,7 @@ def ensure_chromedriver_present(base_dir: str) -> bool:
     print(f"Detected chromedriver_url from remote: {remote_url}")
     print(sep)
     local_ver = extract_version_from_url(local_url)
-    remote_ver = extract_version_from_url(remote_url)
+    remote_ver = extract_version_from_url(remote_url) if remote_url else (0,)
     cmp = version_cmp(local_ver, remote_ver)
     if cmp == 0 and os.path.exists(CHROMEDRIVER_PATH):
         print('ChromeDriver is up to date')
@@ -169,19 +182,70 @@ def ensure_chromedriver_present(base_dir: str) -> bool:
         print(f'Removing existing driver directory: {DRIVER_DIR}')
         shutil.rmtree(DRIVER_DIR)
     os.makedirs(DRIVER_DIR, exist_ok=True)
-    print(f'Downloading Chrome driver from: {remote_url}')
-    resp = requests.get(remote_url, stream=True)
+    print(f'Downloading Chrome driver from: {download_url}')
+    head = requests.head(download_url, allow_redirects=True, timeout=20)
+    head.raise_for_status()
+    total = head.headers.get('Content-Length')
+    if total is None:
+        size_mb = cfg.get('chromedriver_size_mb')
+        size_bytes = cfg.get('chromedriver_size')
+        if size_bytes:
+            total = int(size_bytes)
+        elif size_mb:
+            total = int(float(size_mb) * 1024 * 1024)
+        else:
+            raise ValueError('Content-Length not provided for chromedriver URL and chromedriver_size/chromedriver_size_mb not set in config.json; cannot show deterministic progress bar')
+    else:
+        total = int(total)
+    resp = requests.get(download_url, stream=True)
     resp.raise_for_status()
     with open(DOWNLOAD_PATH, 'wb') as f:
+        downloaded = 0
+        bar_width = 25
+        start_time = time.time()
+        last_update = start_time
+        update_interval = 0.25
+        last_percent = -1
         for chunk in resp.iter_content(chunk_size=8192):
+            if not chunk:
+                continue
             f.write(chunk)
+            downloaded += len(chunk)
+            now = time.time()
+            elapsed = max(0.001, now - start_time)
+            mb_dl = downloaded / 1024 / 1024
+            speed = mb_dl / elapsed
+            percent = int(downloaded * 100 / total)
+            if percent != last_percent or (now - last_update) >= update_interval:
+                last_percent = percent
+                last_update = now
+                filled = int(bar_width * percent / 100)
+                bar = '+' * filled + '-' * (bar_width - filled)
+                colored_bar = ''.join((GREEN + c + RESET) if c == '+' else (RED + c + RESET) for c in bar)
+                human_dl = f'{mb_dl:.2f}MB'
+                human_total = f'{total/1024/1024:.2f}MB'
+                eta = (total - downloaded) / (downloaded / elapsed) if downloaded > 0 else 0
+                eta_str = f'{int(eta)}s' if eta >= 1 else '<1s'
+                print(f'\rDownloading ChromeDriver [{colored_bar}] {percent}% {human_dl}/{human_total} {speed:.2f}MB/s ETA {eta_str}', end='', flush=True)
+    colored_filled = ''.join((GREEN + c + RESET) if c == '+' else (RED + c + RESET) for c in ('+' * bar_width))
+    human_total = f'{total/1024/1024:.2f}MB'
+    print(f'\rDownloading ChromeDriver [{colored_filled}] 100% {human_total}/{human_total} {speed:.2f}MB/s')
+
+    print('Extracting Chrome driver...')
+    if not zipfile.is_zipfile(DOWNLOAD_PATH):
+        raise ValueError('Downloaded ChromeDriver is not a valid zip archive')
     with zipfile.ZipFile(DOWNLOAD_PATH, 'r') as zip_ref:
-        if not os.path.exists(EXTRACTION_DIR):
-            os.makedirs(EXTRACTION_DIR, exist_ok=True)
+        os.makedirs(EXTRACTION_DIR, exist_ok=True)
         zip_ref.extractall(EXTRACTION_DIR)
+    if not os.path.exists(EXTRACTION_DIR):
+        raise FileNotFoundError(f'Extraction directory not found after extraction: {EXTRACTION_DIR}')
+
     chromedriver_dir = os.path.join(EXTRACTION_DIR, zip_folder_name)
     if not os.path.exists(chromedriver_dir):
         chromedriver_dir = EXTRACTION_DIR
+    if not os.path.exists(chromedriver_dir):
+        raise FileNotFoundError(f'Chromedriver extraction directory not found: {chromedriver_dir}')
+
     for item in os.listdir(chromedriver_dir):
         source = os.path.join(chromedriver_dir, item)
         dest = os.path.join(DRIVER_DIR, item)
@@ -199,7 +263,7 @@ def ensure_chromedriver_present(base_dir: str) -> bool:
         os.remove(DOWNLOAD_PATH)
     if os.path.exists(EXTRACTION_DIR):
         shutil.rmtree(EXTRACTION_DIR)
-    cfg[config_url_key] = remote_url
+    cfg[config_url_key] = download_url
     with open(config_path, 'w', encoding='utf-8') as cf:
         json.dump(cfg, cf, indent=2)
     print(sep)

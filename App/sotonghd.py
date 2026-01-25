@@ -370,8 +370,8 @@ class SotongHDApp(QMainWindow):
                 error_msg += f"Base directory: {base_dir}\n"
                 error_msg += "Please run main.py first to download ChromeDriver."
                 logger.kesalahan("ChromeDriver tidak ditemukan", chromedriver_path)
-                QMessageBox.critical(self, "Error", error_msg)
-                return
+                print(error_msg)
+                raise FileNotFoundError(error_msg)
             
 
             if sys.platform != 'win32':
@@ -400,11 +400,8 @@ class SotongHDApp(QMainWindow):
                 headless=(bool(self.headlessCheck.isChecked()) if hasattr(self, 'headlessCheck') else None),
                 incognito=(bool(self.incognitoCheck.isChecked()) if hasattr(self, 'incognitoCheck') else None)
             )
-            try:
-                if hasattr(self, 'batchSpinner') and self.batchSpinner:
-                    self.image_processor.batch_size = int(self.batchSpinner.value())
-            except Exception:
-                pass
+            if hasattr(self, 'batchSpinner') and self.batchSpinner:
+                self.image_processor.batch_size = int(self.batchSpinner.value())
             logger.sukses("Aplikasi SotongHD siap digunakan")
             logger.info("Untuk memulai, seret dan lepas gambar atau folder ke area drop")
         except Exception as e:

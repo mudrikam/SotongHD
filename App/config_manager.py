@@ -17,6 +17,7 @@ class ConfigManager:
             "ffmpeg_url": "",
             "ffmpeg_size_mb": None,
             "chromedriver_url_win64": "",
+            "chromedriver_size_mb": None,
         }
         
         if os.path.exists(self.config_file):

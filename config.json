@@ -2,6 +2,7 @@
   "output_format": "png",
   "chromedriver_url_win64": "https://storage.googleapis.com/chrome-for-testing-public/144.0.7559.96/win64/chromedriver-win64.zip",
   "chromedriver_url": "https://storage.googleapis.com/chrome-for-testing-public/144.0.7559.96/win64/chromedriver-win64.zip",
+  "chromedriver_size_mb": 171,
   "ffmpeg_url": "https://github.com/mudrikam/ffmpeg-for-image-tea/archive/refs/heads/main.zip",
   "ffmpeg_size_mb": 103,
   "batch_size": 10,

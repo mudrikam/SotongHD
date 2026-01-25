@@ -7,6 +7,9 @@ import zipfile
 import tarfile
 import tempfile
 import time
+GREEN = '\x1b[32m'
+RED = '\x1b[31m'
+RESET = '\x1b[0m'
 
 
 def is_ffmpeg_present(base_dir: str) -> bool:
@@ -81,14 +84,16 @@ def download_and_extract_ffmpeg(base_dir: str) -> None:
                 last_update = now
                 filled = int(bar_width * percent / 100)
                 bar = '+' * filled + '-' * (bar_width - filled)
+                colored_bar = ''.join((GREEN + c + RESET) if c == '+' else (RED + c + RESET) for c in bar)
                 human_dl = f'{mb_dl:.2f}MB'
                 human_total = f'{total/1024/1024:.2f}MB'
                 eta = (total - downloaded) / (downloaded / elapsed) if downloaded > 0 else 0
                 eta_str = f'{int(eta)}s' if eta >= 1 else '<1s'
-                print(f'\rDownloading FFMPEG [{bar}] {percent}% {human_dl}/{human_total} {speed:.2f}MB/s ETA {eta_str}', end='', flush=True)
+                print(f'\rDownloading FFMPEG [{colored_bar}] {percent}% {human_dl}/{human_total} {speed:.2f}MB/s ETA {eta_str}', end='', flush=True)
     filled = '+' * bar_width
+    colored_filled = ''.join((GREEN + c + RESET) if c == '+' else (RED + c + RESET) for c in filled)
     human_total = f'{total/1024/1024:.2f}MB'
-    print(f'\rDownloading FFMPEG [{filled}] 100% {human_total}/{human_total} {speed:.2f}MB/s')
+    print(f'\rDownloading FFMPEG [{colored_filled}] 100% {human_total}/{human_total} {speed:.2f}MB/s')
     extract_dir = os.path.join(base_dir, 'temp_ffmpeg_extract')
     if os.path.exists(extract_dir):
         shutil.rmtree(extract_dir)
