@@ -2,6 +2,9 @@ from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
+import tempfile
+import re
+from selenium.common.exceptions import WebDriverException
 import time
 import requests
 import os
@@ -13,6 +16,48 @@ import threading
 import sys
 from PySide6.QtCore import QObject, Signal
 from .logger import logger
+
+def is_chrome_version_mismatch_exception(exc: Exception) -> bool:
+    msg = str(exc) or ""
+    if not msg:
+        return False
+    if re.search(r"This version of ChromeDriver only supports Chrome version\s*\d+", msg):
+        return True
+    if re.search(r"Current browser version is\s*\d+\.\d+\.\d+\.\d+", msg):
+        return True
+    return False
+
+
+def open_chrome_for_update(chromedriver_path: str) -> None:
+    logger.info(f"Membuka Chrome untuk cek update (otomatis) - path chromedriver: {chromedriver_path}")
+    chrome_options = Options()
+    chrome_options.add_argument("--disable-gpu")
+    chrome_options.add_argument("--window-size=1024,768")
+    chrome_options.add_argument("--log-level=3")
+    chrome_options.add_argument("--profile-directory=Default")
+    chrome_options.add_argument("--disable-dev-shm-usage")
+    chrome_options.add_argument("--no-sandbox")
+    chrome_options.add_argument("--disable-blink-features=AutomationControlled")
+    chrome_options.add_experimental_option('excludeSwitches', ['enable-logging'])
+    chrome_options.add_experimental_option('useAutomationExtension', False)
+    temp_user_data = tempfile.mkdtemp(prefix="chrome_temp_")
+    chrome_options.add_argument(f"--user-data-dir={temp_user_data}")
+    service = Service(executable_path=chromedriver_path)
+    old_path = os.environ.get('PATH', '')
+    try:
+        new_path_parts = []
+        for part in old_path.split(os.pathsep):
+            if 'webdriver' not in part.lower() and 'chromedriver' not in part.lower():
+                new_path_parts.append(part)
+        os.environ['PATH'] = os.pathsep.join(new_path_parts)
+        driver = webdriver.Chrome(service=service, options=chrome_options)
+        driver.get("chrome://settings/help")
+        logger.sukses("Chrome berhasil dibuka untuk cek update (otomatis)")
+    except Exception as e:
+        logger.kesalahan("Gagal membuka Chrome untuk cek update (otomatis)", str(e))
+        raise
+    finally:
+        os.environ['PATH'] = old_path
 
 class ProgressSignal(QObject):
     progress = Signal(str, int)
@@ -249,6 +294,13 @@ class ImageProcessor:
 
                     except Exception as e:
                         logger.kesalahan("Gagal membuka browser untuk file", f"{file_name} - {str(e)}")
+                        if is_chrome_version_mismatch_exception(e):
+                            logger.peringatan("Versi Chrome/ChromeDriver tidak cocok terdeteksi; membuka Chrome untuk pengecekan update")
+                            try:
+                                open_chrome_for_update(self.chromedriver_path)
+                            except Exception as oe:
+                                logger.kesalahan("Gagal membuka Chrome untuk cek update setelah mendeteksi versi tidak cocok", str(oe))
+
                         chunk_results[idx] = {
                             "file_path": file_path,
                             "success": False,
@@ -748,7 +800,8 @@ class ImageProcessor:
 
                 driver = webdriver.Chrome(service=Service(self.chromedriver_path), options=chrome_options)
             except Exception as e:
-                if 'cannot find Chrome binary' in str(e) or 'chrome not reachable' in str(e).lower():
+                msg = str(e) or ""
+                if 'cannot find Chrome binary' in msg or 'chrome not reachable' in msg.lower():
                     error_msg = "Chrome browser not found! Please install Google Chrome first.\n"
                     if sys.platform == 'darwin':
                         error_msg += "Install via: brew install --cask google-chrome\n"
@@ -758,6 +811,16 @@ class ImageProcessor:
                         error_msg += "Or download from: https://www.google.com/chrome/"
                     logger.kesalahan("Chrome browser tidak ditemukan", error_msg)
                     result["error"] = error_msg
+                    result["end_time"] = datetime.now()
+                    result["duration"] = (result["end_time"] - result["start_time"]).total_seconds()
+                    return result
+                if is_chrome_version_mismatch_exception(e):
+                    logger.peringatan("Versi Chrome/ChromeDriver tidak cocok terdeteksi; membuka Chrome untuk pengecekan update")
+                    try:
+                        open_chrome_for_update(self.chromedriver_path)
+                    except Exception as oe:
+                        logger.kesalahan("Gagal membuka Chrome untuk cek update setelah mendeteksi versi tidak cocok", str(oe))
+                    result["error"] = "Chrome/ChromeDriver versi tidak cocok. Chrome dibuka untuk pengecekan update." 
                     result["end_time"] = datetime.now()
                     result["duration"] = (result["end_time"] - result["start_time"]).total_seconds()
                     return result
