@@ -16,6 +16,7 @@ import threading
 import sys
 from PySide6.QtCore import QObject, Signal
 from .logger import logger
+import subprocess
 
 def is_chrome_version_mismatch_exception(exc: Exception) -> bool:
     msg = str(exc) or ""
@@ -26,6 +27,62 @@ def is_chrome_version_mismatch_exception(exc: Exception) -> bool:
     if re.search(r"Current browser version is\s*\d+\.\d+\.\d+\.\d+", msg):
         return True
     return False
+
+
+def extract_chrome_version_from_error(exc: Exception) -> int:
+    """
+    Extract Chrome major version from error message.
+    
+    Args:
+        exc: The exception containing version mismatch error
+        
+    Returns:
+        Chrome major version number, or None if not found
+    """
+    msg = str(exc) or ""
+    
+    # Try to extract from "Current browser version is X.X.X.X"
+    match = re.search(r"Current browser version is\s*(\d+)\.(\d+)\.(\d+)\.(\d+)", msg)
+    if match:
+        return int(match.group(1))
+    
+    # Try to extract from "This version of ChromeDriver only supports Chrome version X"
+    match = re.search(r"This version of ChromeDriver only supports Chrome version\s*(\d+)", msg)
+    if match:
+        return int(match.group(1))
+    
+    return None
+
+
+def attempt_chromedriver_fix(base_dir: str, chrome_major_version: int = None) -> bool:
+    """
+    Attempt to download and install the correct ChromeDriver version.
+    
+    Args:
+        base_dir: Base directory of the application
+        chrome_major_version: Chrome major version to match
+        
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        logger.info(f"Attempting to fix ChromeDriver version mismatch (Chrome v{chrome_major_version if chrome_major_version else 'auto'})")
+        
+        # Import here to avoid circular dependency
+        from .tools_checker import download_chromedriver_for_chrome_version
+        
+        success = download_chromedriver_for_chrome_version(base_dir, chrome_major_version)
+        
+        if success:
+            logger.sukses("ChromeDriver berhasil diperbarui dengan versi yang cocok")
+            return True
+        else:
+            logger.peringatan("Gagal memperbarui ChromeDriver secara otomatis")
+            return False
+            
+    except Exception as e:
+        logger.kesalahan("Error saat mencoba memperbaiki ChromeDriver", str(e))
+        return False
 
 
 def open_chrome_for_update(chromedriver_path: str) -> None:
@@ -295,11 +352,30 @@ class ImageProcessor:
                     except Exception as e:
                         logger.kesalahan("Gagal membuka browser untuk file", f"{file_name} - {str(e)}")
                         if is_chrome_version_mismatch_exception(e):
-                            logger.peringatan("Versi Chrome/ChromeDriver tidak cocok terdeteksi; membuka Chrome untuk pengecekan update")
-                            try:
-                                open_chrome_for_update(self.chromedriver_path)
-                            except Exception as oe:
-                                logger.kesalahan("Gagal membuka Chrome untuk cek update setelah mendeteksi versi tidak cocok", str(oe))
+                            logger.peringatan("Versi Chrome/ChromeDriver tidak cocok terdeteksi")
+                            
+                            # Extract Chrome version from error
+                            chrome_version = extract_chrome_version_from_error(e)
+                            
+                            # Get base directory
+                            app_dir = os.path.dirname(os.path.abspath(__file__))
+                            base_dir = os.path.dirname(app_dir)
+                            
+                            # Attempt to download correct driver
+                            logger.info(f"Mencoba mengunduh ChromeDriver yang sesuai dengan Chrome v{chrome_version if chrome_version else 'terinstall'}")
+                            fix_success = attempt_chromedriver_fix(base_dir, chrome_version)
+                            
+                            if fix_success:
+                                logger.sukses("ChromeDriver berhasil diperbarui, silakan coba lagi")
+                                # Update the chromedriver path for this instance
+                                driver_filename = 'chromedriver.exe' if sys.platform == 'win32' else 'chromedriver'
+                                self.chromedriver_path = os.path.join(base_dir, "driver", driver_filename)
+                            else:
+                                logger.peringatan("Gagal memperbarui ChromeDriver otomatis, mencoba membuka Chrome untuk update manual")
+                                try:
+                                    open_chrome_for_update(self.chromedriver_path)
+                                except Exception as oe:
+                                    logger.kesalahan("Gagal membuka Chrome untuk cek update", str(oe))
 
                         chunk_results[idx] = {
                             "file_path": file_path,

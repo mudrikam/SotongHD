@@ -46,7 +46,9 @@ class SotongHDApp(QMainWindow):
             logger.peringatan("Ikon aplikasi tidak ditemukan", icon_path)
         
         self.setGeometry(100, 100, 700, 700)
-        self.setWindowTitle("SotongHD")
+        
+        # Set window title with version info
+        self.update_window_title()
 
         center_window_on_screen(self)
 
@@ -234,6 +236,32 @@ class SotongHDApp(QMainWindow):
             setup_drag_drop_style(self.dropFrame)
           
         self.show()
+    
+    def update_window_title(self):
+        """Update window title with app version, ChromeDriver version, and Chrome version"""
+        try:
+            # Get app version from config
+            config_path = os.path.join(self.base_dir, 'config.json')
+            app_version = '1.0.0'  # default
+            if os.path.exists(config_path):
+                try:
+                    with open(config_path, 'r', encoding='utf-8') as f:
+                        config = json.load(f)
+                        app_version = config.get('app_version', '1.0.0')
+                except Exception:
+                    pass
+            
+            # Get ChromeDriver and Chrome versions
+            from .tools_checker import get_chromedriver_version, get_local_chrome_version_string
+            chromedriver_ver = get_chromedriver_version(self.base_dir)
+            chrome_ver = get_local_chrome_version_string()
+            
+            title = f"SotongHD v{app_version} | ChromeDriver: {chromedriver_ver} | Chrome: {chrome_ver}"
+            self.setWindowTitle(title)
+            logger.info(f"Window title: {title}")
+        except Exception as e:
+            logger.peringatan(f"Error updating window title: {e}")
+            self.setWindowTitle("SotongHD")
     
     def setup_ui_elements(self):
         self.dropFrame = getattr(self, 'dropFrame', None)
