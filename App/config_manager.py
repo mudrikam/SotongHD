@@ -15,6 +15,7 @@ class ConfigManager:
             "headless": True,
             "incognito": True,
             "mute_audio": True,
+            "upscale_level": "2x",
             "processing_hang_timeout": 300,
             "ffmpeg_url": "",
             "ffmpeg_size_mb": None,
@@ -118,3 +119,22 @@ class ConfigManager:
             raise ValueError("Timeout must be >= 10 seconds")
         self.config["processing_hang_timeout"] = int(seconds)
         self.save_config()
+
+    def get_upscale_level(self) -> str:
+        """Get upscale level (2x, 4x, or 6x)"""
+        val = self.config.get("upscale_level", "2x")
+        if val not in ["2x", "4x", "6x"]:
+            return "2x"
+        return val
+
+    def set_upscale_level(self, level: str):
+        """Set upscale level (2x, 4x, or 6x)"""
+        if level not in ["2x", "4x", "6x"]:
+            raise ValueError("Upscale level must be '2x', '4x', or '6x'")
+        self.config["upscale_level"] = level
+        self.save_config()
+
+    def get_upscale_passes(self) -> int:
+        """Get number of upscale passes based on level (2x=1, 4x=2, 6x=3)"""
+        level = self.get_upscale_level()
+        return {"2x": 1, "4x": 2, "6x": 3}.get(level, 1)

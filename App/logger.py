@@ -10,6 +10,7 @@ from PySide6.QtGui import QTextCursor
 
 class LogUISignal(QObject):
     log_message = Signal(str, str)
+    clear_log = Signal()
 
 class SotongLogger:
     INFO = 0
@@ -59,7 +60,15 @@ class SotongLogger:
         self.log_widget = widget
         self.ui_initialized = True
         self.log_ui_signal.log_message.connect(self._update_log_widget)
+        self.log_ui_signal.clear_log.connect(self._clear_log_widget)
         widget.document().setMaximumBlockCount(500)
+    
+    def clear_log(self):
+        self.log_ui_signal.clear_log.emit()
+    
+    def _clear_log_widget(self):
+        if self.log_widget:
+            self.log_widget.clear()
     
     def _update_log_widget(self, message: str, level: str):
         if not self.log_widget:
@@ -124,12 +133,8 @@ class SotongLogger:
             level_text = "DEBUG"
             warna = self.WARNA['ungu']
             level_name = "debug"
-            
-        # translate pesan to Indonesian technical phrasing deterministically
-        try:
-            pesan = self._translate_message(str(pesan))
-        except Exception:
-            pesan = str(pesan)
+
+        pesan = self._translate_message(str(pesan))
 
         log_message = f"[{timestamp}] {level_text}: {pesan}"
         if detail:
