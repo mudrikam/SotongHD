@@ -1,5 +1,5 @@
 {
-  "app_version": "1.0.0",
+  "app_version": "1.0.1",
   "output_format": "png",
   "chromedriver_url_win64": "https://storage.googleapis.com/chrome-for-testing-public/144.0.7559.109/win64/chromedriver-win64.zip",
   "chromedriver_url": "https://storage.googleapis.com/chrome-for-testing-public/145.0.7559.96/win64/chromedriver-win64.zip",
@@ -7,8 +7,9 @@
   "ffmpeg_url": "https://github.com/mudrikam/ffmpeg-for-image-tea/archive/refs/heads/main.zip",
   "ffmpeg_size_mb": 103,
   "batch_size": 10,
-  "headless": true,
+  "headless": false,
   "incognito": true,
   "mute_audio": true,
-  "processing_hang_timeout": 300
+  "processing_hang_timeout": 300,
+  "upscale_level": "2x"
 }

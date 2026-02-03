@@ -98,6 +98,13 @@ class StatsDialog(QDialog):
         self.durationValue.setObjectName('durationValue')
         statsGridLayout.addWidget(self.durationValue, 5, 1)
 
+        upscaleLevelLabel = QLabel('Level Upscale:', stats_frame)
+        statsGridLayout.addWidget(upscaleLevelLabel, 6, 0)
+        self.upscaleLevelValue = QLabel('2x', stats_frame)
+        self.upscaleLevelValue.setObjectName('upscaleLevelValue')
+        self.upscaleLevelValue.setStyleSheet('color: #9b59b6; font-weight: bold;')
+        statsGridLayout.addWidget(self.upscaleLevelValue, 6, 1)
+
         stats_layout.addWidget(stats_frame)
 
         self.foldersHeaderLabel = QLabel('Folder yang Diproses:', self.ui)
@@ -120,6 +127,7 @@ class StatsDialog(QDialog):
         self.ui.startTimeValue = self.startTimeValue
         self.ui.endTimeValue = self.endTimeValue
         self.ui.durationValue = self.durationValue
+        self.ui.upscaleLevelValue = self.upscaleLevelValue
         self.ui.foldersLayout = self.foldersLayout
         self.ui.foldersHeaderLabel = self.foldersHeaderLabel
         self.ui.foldersScrollArea = self.foldersScrollArea
@@ -201,6 +209,12 @@ class StatsDialog(QDialog):
                 self.ui.endTimeValue.setText(end_time)
                 duration = timedelta(seconds=int(self.stats['total_duration']))
                 self.ui.durationValue.setText(str(duration))
+            
+            # Set upscale level
+            upscale_level = self.stats.get('upscale_level', '2x')
+            upscale_passes = self.stats.get('upscale_passes', 1)
+            self.ui.upscaleLevelValue.setText(f"{upscale_level} ({upscale_passes} pass{'es' if upscale_passes > 1 else ''})")
+            
             if 'processed_folders' in self.stats and self.stats['processed_folders']:
                 while self.ui.foldersLayout.count():
                     item = self.ui.foldersLayout.takeAt(0)

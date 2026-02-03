@@ -13,7 +13,7 @@ SotongHD adalah script otomatisasi untuk upscale gambar ke resolusi 2x lebih tin
 Script ini memudahkan proses upscaling gambar secara batch tanpa perlu melakukannya satu per satu.
 
 ## Fitur Utama
-- Upscale otomatis gambar ke resolusi 2x (skala lebih besar membutuhkan Picsart Plus)
+- Upscale otomatis gambar ke resolusi 2x, 4x dan 6x
 - Opsi upscale 1 gambar, multi gambar, folder, atau multi folder
 - Proses batch untuk multiple gambar
 - Antarmuka yang sederhana dan mudah digunakan

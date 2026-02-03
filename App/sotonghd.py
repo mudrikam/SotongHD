@@ -3,7 +3,7 @@ import sys
 from datetime import datetime
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QMessageBox, QProgressBar, 
                               QVBoxLayout, QLabel, QPushButton, QFileDialog,
-                              QHBoxLayout, QGridLayout, QScrollArea, QSizePolicy, QTextEdit, QCheckBox, QSpinBox)
+                              QHBoxLayout, QGridLayout, QScrollArea, QSizePolicy, QTextEdit, QCheckBox, QSpinBox, QComboBox)
 from PySide6.QtGui import QIcon, QPixmap, QDragEnterEvent, QDropEvent
 from PySide6.QtCore import Qt, QTimer, QSize, QUrl, Signal, QObject
 from PySide6.QtWidgets import QFrame, QSpacerItem
@@ -100,10 +100,10 @@ class SotongHDApp(QMainWindow):
         self.subtitleLabel.setAlignment(Qt.AlignCenter)
         self.subtitleLabel.setWordWrap(True)
         self.subtitleLabel.setText("""
-            Script ini hanya mengunggah gambar ke situs Picsart dan menggunakan fitur upscale otomatis di sana.
+            Cara pakai: Pilih batch & level upscale (2x/4x/6x), drag & drop gambar ke sini atau klik tombol di bawah.
 
-            Upscale tidak dilakukan oleh aplikasi ini, tapi oleh server Picsart.
-            Hasil akan disimpan otomatis ke folder 'UPSCALE' sumber file asli. Fitur gratis Picsart hanya mendukung hingga 2x upscale. Gunakan seperlunya.
+            Hasil otomatis tersimpan di folder 'UPSCALE' sesuai lokasi file asli.
+            Mode Headless = proses background tanpa jendela browser. Incognito = sesi privat tanpa cache.
             """)
         drop_layout.addWidget(self.subtitleLabel)
 
@@ -138,6 +138,18 @@ class SotongHDApp(QMainWindow):
         self.batchSpinner.setToolTip("Ukuran batch saat memproses file (1-20)")
         self.batchSpinner.setFixedWidth(80)
         controls_layout.addWidget(self.batchSpinner)
+
+        self.upscaleLevelLabel = QLabel("Upscale:", central_widget)
+        self.upscaleLevelLabel.setObjectName("upscaleLevelLabel")
+        controls_layout.addWidget(self.upscaleLevelLabel)
+
+        self.upscaleLevelCombo = QComboBox(central_widget)
+        self.upscaleLevelCombo.setObjectName("upscaleLevelCombo")
+        self.upscaleLevelCombo.addItems(["2x", "4x", "6x"])
+        self.upscaleLevelCombo.setCurrentText("2x")
+        self.upscaleLevelCombo.setToolTip("Level upscale: 2x (1 pass), 4x (2 pass), 6x (3 pass)")
+        self.upscaleLevelCombo.setFixedWidth(60)
+        controls_layout.addWidget(self.upscaleLevelCombo)
 
         controls_layout.addStretch()
 
@@ -286,6 +298,8 @@ class SotongHDApp(QMainWindow):
 
         self.batchSpinner = getattr(self, 'batchSpinner', self.findChild(QSpinBox, "batchSpinner"))
         self.batchLabel = getattr(self, 'batchLabel', self.findChild(QLabel, "batchLabel"))
+        self.upscaleLevelCombo = getattr(self, 'upscaleLevelCombo', self.findChild(QComboBox, "upscaleLevelCombo"))
+        self.upscaleLevelLabel = getattr(self, 'upscaleLevelLabel', self.findChild(QLabel, "upscaleLevelLabel"))
         self.headlessCheck = getattr(self, 'headlessCheck', self.findChild(QCheckBox, "headlessCheck"))
         self.incognitoCheck = getattr(self, 'incognitoCheck', self.findChild(QCheckBox, "incognitoCheck"))
         self.muteCheck = getattr(self, 'muteCheck', self.findChild(QCheckBox, "muteCheck"))
@@ -295,6 +309,10 @@ class SotongHDApp(QMainWindow):
             batch_val = self.config_manager.get_batch_size()
             if hasattr(self, 'batchSpinner') and batch_val:
                 self.batchSpinner.setValue(int(batch_val))
+
+            upscale_level = self.config_manager.get_upscale_level()
+            if hasattr(self, 'upscaleLevelCombo') and self.upscaleLevelCombo:
+                self.upscaleLevelCombo.setCurrentText(upscale_level)
 
             headless_val = self.config_manager.get_headless()
             if hasattr(self, 'headlessCheck') and headless_val is not None:
@@ -448,6 +466,8 @@ class SotongHDApp(QMainWindow):
             )
             if hasattr(self, 'batchSpinner') and self.batchSpinner:
                 self.image_processor.batch_size = int(self.batchSpinner.value())
+            if hasattr(self, 'upscaleLevelCombo') and self.upscaleLevelCombo:
+                self.image_processor.upscale_level = self.upscaleLevelCombo.currentText()
             logger.sukses("Aplikasi SotongHD siap digunakan")
             logger.info("Untuk memulai, seret dan lepas gambar atau folder ke area drop")
         except Exception as e:
@@ -642,6 +662,11 @@ class SotongHDApp(QMainWindow):
                     val = int(self.batchSpinner.value())
                     self.config_manager.set_batch_size(val)
                     self.image_processor.batch_size = val
+
+                if hasattr(self, 'upscaleLevelCombo') and self.upscaleLevelCombo:
+                    upscale_level = self.upscaleLevelCombo.currentText()
+                    self.config_manager.set_upscale_level(upscale_level)
+                    self.image_processor.upscale_level = upscale_level
 
                 if hasattr(self, 'headlessCheck'):
                     h = bool(self.headlessCheck.isChecked())
@@ -1038,10 +1063,10 @@ class SotongHDApp(QMainWindow):
                 
             if self.subtitleLabel:
                 self.subtitleLabel.setText("""
-                Script ini hanya mengunggah gambar ke situs Picsart dan menggunakan fitur upscale otomatis di sana.
+                Cara pakai: Pilih batch & level upscale (2x/4x/6x), drag & drop gambar ke sini atau klik tombol di bawah.
 
-                Upscale tidak dilakukan oleh aplikasi ini, tapi oleh server Picsart.
-                Hasil akan disimpan otomatis ke folder 'UPSCALE' sumber file asli. Fitur gratis Picsart hanya mendukung hingga 2x upscale. Gunakan seperlunya.
+                Hasil otomatis tersimpan di folder 'UPSCALE' sesuai lokasi file asli.
+                Mode Headless = proses background tanpa jendela browser. Incognito = sesi privat tanpa cache.
                 """)
                 
             if self.dropFrame:

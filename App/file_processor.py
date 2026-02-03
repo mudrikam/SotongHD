@@ -41,7 +41,8 @@ def open_whatsapp_group(group_url="https://chat.whatsapp.com/CMQvDxpCfP647kBBA6d
     QDesktopServices.openUrl(QUrl(group_url))
 
 def show_statistics(parent, stats):
-    logger.info("Statistik proses", f"Berhasil: {stats['total_processed']}, Gagal: {stats['total_failed']}")
+    upscale_info = f" ({stats.get('upscale_level', '2x')})" if stats.get('upscale_level', '2x') != '2x' else ""
+    logger.info(f"Statistik proses{upscale_info}", f"Berhasil: {stats['total_processed']}, Gagal: {stats['total_failed']}")
     if 'processed_folders' not in stats:
         stats['processed_folders'] = []
     dialog = StatsDialog(parent, stats)
