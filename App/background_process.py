@@ -1474,50 +1474,31 @@ class ImageProcessor:
                         self.total_failed += 1
 
             # ============================================================
-            # AGGRESSIVE CLEANUP: Pastikan SEMUA Chrome ditutup sebelum batch berikutnya
+            # FAST CLEANUP: Kill Chrome processes instantly
             # ============================================================
             logger.info(f"=== Membersihkan {len(batch_driver_tracker)} Chrome dari batch {batch_num} ===")
             
-            # Step 1: Close drivers from main array
-            closed_count = 0
-            for idx_d, d in enumerate(drivers):
-                if d is not None:
-                    try:
-                        logger.debug(f"Menutup driver slot {idx_d}")
-                        d.quit()
-                        closed_count += 1
-                    except Exception as e:
-                        logger.peringatan(f"Error menutup driver slot {idx_d}", str(e))
-                    drivers[idx_d] = None
+            # Clear driver references
+            for idx_d in range(len(drivers)):
+                drivers[idx_d] = None
             
-            # Step 2: Force close ANY tracked driver that might have been missed
-            for tracked_driver in batch_driver_tracker:
-                if tracked_driver is not None:
-                    try:
-                        # Check if driver still alive
-                        try:
-                            _ = tracked_driver.current_url
-                            # Still alive, force quit
-                            tracked_driver.quit()
-                            closed_count += 1
-                            logger.debug("Menutup tracked driver yang masih hidup")
-                        except Exception:
-                            # Already dead, skip
-                            pass
-                    except Exception as e:
-                        logger.peringatan(f"Error force closing tracked driver", str(e))
-            
+            # Clear trackers
             for d in batch_driver_tracker:
                 if d in self.global_driver_tracker:
                     self.global_driver_tracker.remove(d)
             batch_driver_tracker.clear()
-            if closed_count > 0:
-                logger.sukses(f"Batch {batch_num} cleanup selesai: {closed_count} Chrome ditutup")
-            else:
-                logger.info(f"Batch {batch_num} cleanup selesai: 0 Chrome ditutup (mungkin sudah tertutup atau gagal ditutup)")
             
-            # Step 3: Wait for Chrome processes to fully terminate
-            time.sleep(1)  # Give OS time to clean up processes
+            # Kill all Chrome/ChromeDriver processes instantly (Windows)
+            try:
+                # Kill chromedriver.exe
+                subprocess.run(['taskkill', '/F', '/IM', 'chromedriver.exe'], 
+                             capture_output=True, timeout=2, creationflags=subprocess.CREATE_NO_WINDOW)
+                # Kill chrome.exe
+                subprocess.run(['taskkill', '/F', '/IM', 'chrome.exe'], 
+                             capture_output=True, timeout=2, creationflags=subprocess.CREATE_NO_WINDOW)
+                logger.sukses(f"Batch {batch_num} cleanup selesai (instant kill)")
+            except Exception as e:
+                logger.debug(f"Kill process: {e}")
             
             # Cleanup any compressed temporary files
             for file_path in chunk:

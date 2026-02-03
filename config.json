@@ -11,5 +11,5 @@
   "incognito": true,
   "mute_audio": true,
   "processing_hang_timeout": 300,
-  "upscale_level": "2x"
+  "upscale_level": "4x"
 }
