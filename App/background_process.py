@@ -2238,8 +2238,10 @@ class ImageProcessor:
 
         for result in self.results:
             if "file_path" in result:
-                folder = os.path.dirname(result["file_path"])
-                stats["processed_folders"].add(folder)
+                source_folder = os.path.dirname(result["file_path"])
+                if os.path.basename(source_folder) == "temp_UPSCALE":
+                    source_folder = os.path.dirname(source_folder)
+                stats["processed_folders"].add(source_folder)
                 
         stats["processed_folders"] = list(stats["processed_folders"])
         return stats

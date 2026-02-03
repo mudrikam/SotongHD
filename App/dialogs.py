@@ -17,14 +17,12 @@ class StatsDialog(QDialog):
         self.last_folder = None
         
         if stats and 'processed_folders' in stats and stats['processed_folders']:
-            # pick the last existing UPSCALE folder from the list; fall back to the last entry
             last_folder = None
-            for p in reversed(stats['processed_folders']):
-                if os.path.exists(p) and os.path.isdir(p):
-                    last_folder = p
+            for source_folder in reversed(stats['processed_folders']):
+                upscale_folder = os.path.join(source_folder, 'UPSCALE')
+                if os.path.exists(upscale_folder) and os.path.isdir(upscale_folder):
+                    last_folder = upscale_folder
                     break
-            if last_folder is None:
-                last_folder = stats['processed_folders'][-1]
             self.last_folder = last_folder
             
         self.setWindowTitle("Statistik SotongHD")
