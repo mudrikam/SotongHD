@@ -137,12 +137,19 @@ def initialize_chrome_driver_with_timeout(chromedriver_path: str, chrome_options
     def _init_driver():
         try:
             if caps:
-                return webdriver.Chrome(service=Service(chromedriver_path), desired_capabilities=caps)
+                driver = webdriver.Chrome(service=Service(chromedriver_path), desired_capabilities=caps)
             else:
-                return webdriver.Chrome(service=Service(chromedriver_path), options=chrome_options)
+                driver = webdriver.Chrome(service=Service(chromedriver_path), options=chrome_options)
         except TypeError:
             # Fallback if desired_capabilities is not supported
-            return webdriver.Chrome(service=Service(chromedriver_path), options=chrome_options)
+            driver = webdriver.Chrome(service=Service(chromedriver_path), options=chrome_options)
+        
+        # Track Chrome PID for selective cleanup
+        try:
+            driver.chrome_pid = driver.service.process.pid
+        except:
+            driver.chrome_pid = None
+        return driver
     
     last_error = None
     for attempt in range(1, max_retries + 1):
@@ -318,6 +325,7 @@ class ImageProcessor:
         self.chrome_init_retries = 3   # max retry attempts
         self.page_load_timeout = 30    # page load timeout
         self.global_driver_tracker = []
+        self.chrome_pids = []  # Track Chrome PIDs started by this tool
         import time as _time
         self.last_activity_time = _time.time()
         
@@ -1474,9 +1482,23 @@ class ImageProcessor:
                         self.total_failed += 1
 
             # ============================================================
-            # FAST CLEANUP: Kill Chrome processes instantly
+            # FAST CLEANUP: Kill ONLY our Chrome processes by PID
             # ============================================================
             logger.info(f"=== Membersihkan {len(batch_driver_tracker)} Chrome dari batch {batch_num} ===")
+            
+            # Collect PIDs from this batch
+            batch_pids = set()
+            for d in batch_driver_tracker:
+                if d is not None:
+                    try:
+                        # Get chromedriver PID
+                        if hasattr(d, 'service') and hasattr(d.service, 'process') and d.service.process:
+                            batch_pids.add(d.service.process.pid)
+                        # Get chrome PID if tracked
+                        if hasattr(d, 'chrome_pid') and d.chrome_pid:
+                            batch_pids.add(d.chrome_pid)
+                    except:
+                        pass
             
             # Clear driver references
             for idx_d in range(len(drivers)):
@@ -1488,17 +1510,27 @@ class ImageProcessor:
                     self.global_driver_tracker.remove(d)
             batch_driver_tracker.clear()
             
-            # Kill all Chrome/ChromeDriver processes instantly (Windows)
+            # Kill ONLY our processes by PID (won't touch user's Chrome)
+            killed_count = 0
+            for pid in batch_pids:
+                try:
+                    subprocess.run(['taskkill', '/F', '/PID', str(pid), '/T'], 
+                                 capture_output=True, timeout=1, creationflags=subprocess.CREATE_NO_WINDOW)
+                    killed_count += 1
+                except:
+                    pass
+            
+            # Also kill chromedriver.exe (safe, not user process)
             try:
-                # Kill chromedriver.exe
                 subprocess.run(['taskkill', '/F', '/IM', 'chromedriver.exe'], 
-                             capture_output=True, timeout=2, creationflags=subprocess.CREATE_NO_WINDOW)
-                # Kill chrome.exe
-                subprocess.run(['taskkill', '/F', '/IM', 'chrome.exe'], 
-                             capture_output=True, timeout=2, creationflags=subprocess.CREATE_NO_WINDOW)
-                logger.sukses(f"Batch {batch_num} cleanup selesai (instant kill)")
-            except Exception as e:
-                logger.debug(f"Kill process: {e}")
+                             capture_output=True, timeout=1, creationflags=subprocess.CREATE_NO_WINDOW)
+            except:
+                pass
+            
+            if killed_count > 0:
+                logger.sukses(f"Batch {batch_num} cleanup selesai ({killed_count} process ditutup)")
+            else:
+                logger.info(f"Batch {batch_num} cleanup selesai")
             
             # Cleanup any compressed temporary files
             for file_path in chunk:

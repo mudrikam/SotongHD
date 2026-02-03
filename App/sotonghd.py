@@ -149,6 +149,8 @@ class SotongHDApp(QMainWindow):
         self.upscaleLevelCombo.setCurrentText("2x")
         self.upscaleLevelCombo.setToolTip("Level upscale: 2x (1 pass), 4x (2 pass), 6x (3 pass)")
         self.upscaleLevelCombo.setFixedWidth(60)
+        # Auto-save when changed
+        self.upscaleLevelCombo.currentTextChanged.connect(self._on_upscale_level_changed)
         controls_layout.addWidget(self.upscaleLevelCombo)
 
         controls_layout.addStretch()
@@ -399,6 +401,16 @@ class SotongHDApp(QMainWindow):
                 self.muteCheck.stateChanged.connect(lambda s: self.config_manager.set_mute_audio(bool(self.muteCheck.isChecked())))
         except Exception:
             pass
+
+    def _on_upscale_level_changed(self, text):
+        """Auto-save when upscale level changes"""
+        try:
+            self.config_manager.set_upscale_level(text)
+            if hasattr(self, 'image_processor') and self.image_processor:
+                self.image_processor.upscale_level = text
+            logger.debug(f"Upscale level auto-saved: {text}")
+        except Exception as e:
+            logger.peringatan("Gagal auto-save upscale level", str(e))
     
     def setup_thumbnail_label(self):
         self.thumbnail_label = ScalableImageLabel()
