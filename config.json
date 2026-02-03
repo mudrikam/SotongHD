@@ -7,7 +7,7 @@
   "ffmpeg_url": "https://github.com/mudrikam/ffmpeg-for-image-tea/archive/refs/heads/main.zip",
   "ffmpeg_size_mb": 103,
   "batch_size": 10,
-  "headless": false,
+  "headless": true,
   "incognito": true,
   "mute_audio": true,
   "processing_hang_timeout": 300,
