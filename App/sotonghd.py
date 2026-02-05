@@ -20,6 +20,7 @@ from .progress_handler import ProgressHandler, ProgressUIManager
 from .file_processor import (is_image_file, open_folder_dialog, open_files_dialog, 
                            open_whatsapp_group, show_statistics, confirm_stop_processing)
 from .config_manager import ConfigManager
+from .ffmpeg_downloader import is_video_upscale_supported
 import json
 
 try:
@@ -699,8 +700,25 @@ class SotongHDApp(QMainWindow):
         video_exts = {'.mp4', '.mov', '.mkv', '.avi', '.webm', '.m4v'}
         video_files = [p for p in file_paths if Path(p).suffix.lower() in video_exts and Path(p).is_file()]
         if video_files:
-            self.start_video_extraction(video_files)
-            return
+            # Check if video upscale is supported (ffmpeg available)
+            if not is_video_upscale_supported(self.base_dir):
+                logger.kesalahan("Video upscale tidak didukung", "ffmpeg tidak tersedia")
+                QMessageBox.warning(
+                    self,
+                    "Video Upscale Tidak Tersedia",
+                    "Video upscale tidak tersedia karena ffmpeg tidak ditemukan.\n\n"
+                    "Untuk mengaktifkan video upscale:\n"
+                    "- macOS: brew install ffmpeg\n"
+                    "- Linux: sudo apt install ffmpeg\n\n"
+                    "Gambar tetap bisa di-upscale."
+                )
+                # Filter out video files and process only images
+                file_paths = [p for p in file_paths if Path(p).suffix.lower() not in video_exts]
+                if not file_paths:
+                    return
+            else:
+                self.start_video_extraction(video_files)
+                return
 
         self.image_processor.start_processing(file_paths)
         

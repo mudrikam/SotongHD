@@ -7,23 +7,121 @@ import zipfile
 import tarfile
 import tempfile
 import time
+import subprocess
 GREEN = '\x1b[32m'
 RED = '\x1b[31m'
 RESET = '\x1b[0m'
 
 
+def get_system_ffmpeg() -> str | None:
+    """
+    Find ffmpeg in system PATH.
+    Returns the path to ffmpeg executable if found, None otherwise.
+    """
+    ffmpeg_name = 'ffmpeg.exe' if sys.platform == 'win32' else 'ffmpeg'
+    path = shutil.which(ffmpeg_name)
+    if path:
+        return path
+    return None
+
+
+def get_system_ffprobe() -> str | None:
+    """
+    Find ffprobe in system PATH.
+    Returns the path to ffprobe executable if found, None otherwise.
+    """
+    ffprobe_name = 'ffprobe.exe' if sys.platform == 'win32' else 'ffprobe'
+    path = shutil.which(ffprobe_name)
+    if path:
+        return path
+    return None
+
+
+def get_ffmpeg_path(base_dir: str) -> str | None:
+    """
+    Get the ffmpeg executable path.
+    On Windows: uses bundled ffmpeg in ffmpeg/ directory
+    On Mac/Linux: uses system ffmpeg from PATH
+    Returns None if not available.
+    """
+    if sys.platform == 'win32':
+        # Windows: use bundled ffmpeg
+        bundled = os.path.join(base_dir, 'ffmpeg', 'ffmpeg.exe')
+        if os.path.isfile(bundled):
+            return bundled
+        return None
+    else:
+        # Mac/Linux: use system ffmpeg
+        return get_system_ffmpeg()
+
+
+def get_ffprobe_path(base_dir: str) -> str | None:
+    """
+    Get the ffprobe executable path.
+    On Windows: uses bundled ffprobe in ffmpeg/ directory
+    On Mac/Linux: uses system ffprobe from PATH
+    Returns None if not available.
+    """
+    if sys.platform == 'win32':
+        # Windows: use bundled ffprobe
+        bundled = os.path.join(base_dir, 'ffmpeg', 'ffprobe.exe')
+        if os.path.isfile(bundled):
+            return bundled
+        return None
+    else:
+        # Mac/Linux: use system ffprobe
+        return get_system_ffprobe()
+
+
+def is_video_upscale_supported(base_dir: str) -> bool:
+    """
+    Check if video upscale is supported on this system.
+    Requires both ffmpeg and ffprobe to be available.
+    """
+    ffmpeg = get_ffmpeg_path(base_dir)
+    ffprobe = get_ffprobe_path(base_dir)
+    return ffmpeg is not None and ffprobe is not None
+
+
 def is_ffmpeg_present(base_dir: str) -> bool:
-    ffmpeg_dir = os.path.join(base_dir, 'ffmpeg')
-    if not os.path.isdir(ffmpeg_dir):
-        return False
-    exe = 'ffmpeg.exe' if sys.platform == 'win32' else 'ffmpeg'
-    return os.path.isfile(os.path.join(ffmpeg_dir, exe))
+    """
+    Check if ffmpeg is present and usable.
+    On Windows: checks bundled ffmpeg in ffmpeg/ directory
+    On Mac/Linux: checks system ffmpeg in PATH
+    """
+    if sys.platform == 'win32':
+        # Windows: check bundled ffmpeg
+        ffmpeg_dir = os.path.join(base_dir, 'ffmpeg')
+        if not os.path.isdir(ffmpeg_dir):
+            return False
+        return os.path.isfile(os.path.join(ffmpeg_dir, 'ffmpeg.exe'))
+    else:
+        # Mac/Linux: check system ffmpeg
+        return get_system_ffmpeg() is not None
 
 
 def ensure_ffmpeg_present(base_dir: str) -> bool:
+    """
+    Ensure ffmpeg is available.
+    On Windows: downloads bundled ffmpeg if not present
+    On Mac/Linux: only checks for system ffmpeg, does NOT download
+    Returns True if ffmpeg is available, False otherwise.
+    """
     if is_ffmpeg_present(base_dir):
         print('ffmpeg is present')
         return True
+    
+    # On Mac/Linux, we don't download ffmpeg - user must install it from system
+    if sys.platform != 'win32':
+        print('ffmpeg not found in system PATH.')
+        print('Please install ffmpeg using your package manager:')
+        print('  - macOS: brew install ffmpeg')
+        print('  - Ubuntu/Debian: sudo apt install ffmpeg')
+        print('  - Fedora: sudo dnf install ffmpeg')
+        print('Video upscale will be disabled.')
+        return False
+    
+    # Windows: download bundled ffmpeg
     download_and_extract_ffmpeg(base_dir)
     if not is_ffmpeg_present(base_dir):
         raise RuntimeError('ffmpeg installation failed: executable not found after extraction')

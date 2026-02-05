@@ -8,14 +8,17 @@ import threading
 import shutil
 import queue
 import re
+import sys
 from typing import Tuple
 from .logger import logger
+from .ffmpeg_downloader import get_ffmpeg_path, get_ffprobe_path
 
 class VideoFrameExtractor:
     def __init__(self, base_dir: str, ffmpeg_path: str | None = None, ffprobe_path: str | None = None, progress_signal=None):
         self.base_dir = base_dir
-        self.ffmpeg_path = ffmpeg_path or os.path.join(base_dir, 'ffmpeg', 'ffmpeg.exe')
-        self.ffprobe_path = ffprobe_path or os.path.join(base_dir, 'ffmpeg', 'ffprobe.exe')
+        # Use cross-platform path detection
+        self.ffmpeg_path = ffmpeg_path or get_ffmpeg_path(base_dir)
+        self.ffprobe_path = ffprobe_path or get_ffprobe_path(base_dir)
         self.progress_signal = progress_signal
         self.should_stop = False
         self.processing_thread = None
@@ -25,12 +28,20 @@ class VideoFrameExtractor:
             self.progress_signal.progress.emit(message, int(percentage) if percentage is not None else 0)
 
     def _ensure_tools(self):
-        if not os.path.exists(self.ffmpeg_path):
-            logger.kesalahan("ffmpeg not found", self.ffmpeg_path)
-            raise FileNotFoundError(f"ffmpeg not found at: {self.ffmpeg_path}")
-        if not os.path.exists(self.ffprobe_path):
-            logger.kesalahan("ffprobe not found", self.ffprobe_path)
-            raise FileNotFoundError(f"ffprobe not found at: {self.ffprobe_path}")
+        if not self.ffmpeg_path or not os.path.exists(self.ffmpeg_path):
+            if sys.platform == 'win32':
+                msg = f"ffmpeg not found at: {self.ffmpeg_path}"
+            else:
+                msg = "ffmpeg not found. Please install ffmpeg using your package manager (e.g., brew install ffmpeg)"
+            logger.kesalahan("ffmpeg not found", self.ffmpeg_path or "Not configured")
+            raise FileNotFoundError(msg)
+        if not self.ffprobe_path or not os.path.exists(self.ffprobe_path):
+            if sys.platform == 'win32':
+                msg = f"ffprobe not found at: {self.ffprobe_path}"
+            else:
+                msg = "ffprobe not found. Please install ffmpeg using your package manager (e.g., brew install ffmpeg)"
+            logger.kesalahan("ffprobe not found", self.ffprobe_path or "Not configured")
+            raise FileNotFoundError(msg)
 
     def _compute_hash_dir(self, video_path: str) -> str:
         st = Path(video_path)

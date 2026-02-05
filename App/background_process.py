@@ -492,9 +492,13 @@ class ImageProcessor:
         """
         Determine output folder based on current processing state.
         Uses temp_UPSCALE for intermediate passes, UPSCALE for final pass.
+        Handles path normalization for cross-platform compatibility.
         """
         use_temp = getattr(self, '_current_use_temp', False)
         folder_name = "temp_UPSCALE" if use_temp else "UPSCALE"
+        
+        # Normalize the file path for cross-platform compatibility
+        file_path = os.path.normpath(file_path)
         
         # For intermediate passes, we need to determine the original source directory
         # If file is in temp_UPSCALE, get the parent's parent
@@ -504,10 +508,13 @@ class ImageProcessor:
         if dir_name == "temp_UPSCALE":
             # File is from previous temp pass, output to same level (parent's temp_UPSCALE or UPSCALE)
             parent_dir = os.path.dirname(file_dir)
-            return os.path.join(parent_dir, folder_name)
+            output_folder = os.path.join(parent_dir, folder_name)
         else:
             # File is from original source
-            return os.path.join(file_dir, folder_name)
+            output_folder = os.path.join(file_dir, folder_name)
+        
+        # Normalize the output path
+        return os.path.normpath(output_folder)
 
     def _get_original_base_name(self, file_path: str) -> str:
         """
@@ -619,12 +626,14 @@ class ImageProcessor:
         # Track original file info for each file - keyed by index for consistent ordering
         original_file_info = []
         for f in files:
+            # Normalize paths for cross-platform compatibility
+            normalized_path = os.path.normpath(f)
             original_file_info.append({
-                'original_path': f,
-                'original_dir': os.path.dirname(f),
-                'original_name': Path(f).stem,
-                'original_ext': Path(f).suffix,
-                'current_path': f  # Will be updated after each pass
+                'original_path': normalized_path,
+                'original_dir': os.path.normpath(os.path.dirname(normalized_path)),
+                'original_name': Path(normalized_path).stem,
+                'original_ext': Path(normalized_path).suffix,
+                'current_path': normalized_path  # Will be updated after each pass
             })
         
         current_files = files[:]
@@ -657,25 +666,25 @@ class ImageProcessor:
                 # Prepare files for next pass from temp_UPSCALE folders
                 next_files = []
                 for idx, info in enumerate(original_file_info):
-                    orig_dir = info['original_dir']
+                    orig_dir = os.path.normpath(info['original_dir'])
                     orig_name = info['original_name']
-                    current_path = info['current_path']
+                    current_path = os.path.normpath(info['current_path'])
                     
                     # Determine where to look for the output
                     # If current file is in temp_UPSCALE, look there
                     current_file_dir = os.path.dirname(current_path)
                     if os.path.basename(current_file_dir) == "temp_UPSCALE":
                         # File was from temp_UPSCALE, look in same temp_UPSCALE (same source dir)
-                        search_dir = os.path.join(os.path.dirname(current_file_dir), "temp_UPSCALE")
+                        search_dir = os.path.normpath(os.path.join(os.path.dirname(current_file_dir), "temp_UPSCALE"))
                     else:
                         # File was from original dir
-                        search_dir = os.path.join(orig_dir, "temp_UPSCALE")
+                        search_dir = os.path.normpath(os.path.join(orig_dir, "temp_UPSCALE"))
                     
                     if os.path.exists(search_dir):
                         # Find files matching the original name pattern (name_timestamp.ext)
                         matching_files = []
                         for f in os.listdir(search_dir):
-                            fpath = os.path.join(search_dir, f)
+                            fpath = os.path.normpath(os.path.join(search_dir, f))
                             if os.path.isfile(fpath):
                                 # Get the base part of the filename (before timestamp)
                                 fname_stem = Path(f).stem
@@ -703,7 +712,7 @@ class ImageProcessor:
             logger.info("Membersihkan folder temp_UPSCALE...")
             cleaned_dirs = set()
             for info in original_file_info:
-                temp_upscale_dir = os.path.join(info['original_dir'], "temp_UPSCALE")
+                temp_upscale_dir = os.path.normpath(os.path.join(info['original_dir'], "temp_UPSCALE"))
                 if temp_upscale_dir not in cleaned_dirs and os.path.exists(temp_upscale_dir):
                     try:
                         shutil.rmtree(temp_upscale_dir)

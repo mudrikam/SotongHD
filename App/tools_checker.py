@@ -14,7 +14,7 @@ GREEN = '\x1b[32m'
 RED = '\x1b[31m'
 RESET = '\x1b[0m'
 
-from App.ffmpeg_downloader import ensure_ffmpeg_present, is_ffmpeg_present
+from App.ffmpeg_downloader import ensure_ffmpeg_present, is_ffmpeg_present, is_video_upscale_supported
 
 
 def get_platform_info():
@@ -580,6 +580,12 @@ def ensure_chromedriver_present(base_dir: str) -> bool:
 
 
 def check_tools(base_dir: str) -> bool:
+    """
+    Check and ensure required tools are present.
+    ChromeDriver is required for all platforms.
+    ffmpeg is required on Windows (will be downloaded), optional on Mac/Linux (uses system).
+    Returns True if ChromeDriver is present (ffmpeg is optional on Mac/Linux).
+    """
     sep = '-' * 40
     print(sep)
     print('SotongHD Tools Checker')
@@ -597,13 +603,30 @@ def check_tools(base_dir: str) -> bool:
     try:
         ffmpeg_ok = is_ffmpeg_present(base_dir)
         if not ffmpeg_ok:
-            ensure_ffmpeg_present(base_dir)
+            # On Mac/Linux, ensure_ffmpeg_present will just print a message and return False
+            # On Windows, it will download ffmpeg
+            result = ensure_ffmpeg_present(base_dir)
             ffmpeg_ok = is_ffmpeg_present(base_dir)
+            if not ffmpeg_ok and sys.platform != 'win32':
+                # On Mac/Linux, ffmpeg is optional - video upscale will be disabled
+                print('Video upscale support disabled (ffmpeg not available)')
     except Exception as e:
-        print(f'Error while ensuring ffmpeg: {e}')
-        raise
+        if sys.platform == 'win32':
+            # On Windows, ffmpeg download failure is a fatal error
+            print(f'Error while ensuring ffmpeg: {e}')
+            raise
+        else:
+            # On Mac/Linux, just warn and continue
+            print(f'Warning: ffmpeg not available: {e}')
+            print('Video upscale support disabled')
     print(sep)
     print(f'ChromeDriver present: {chromedriver_ok}')
     print(f'ffmpeg present: {ffmpeg_ok}')
+    if not ffmpeg_ok:
+        print('Note: Video upscale disabled (ffmpeg not found)')
     print(sep)
-    return chromedriver_ok and ffmpeg_ok
+    # Return True if ChromeDriver is OK - ffmpeg is optional on Mac/Linux
+    if sys.platform == 'win32':
+        return chromedriver_ok and ffmpeg_ok
+    else:
+        return chromedriver_ok  # ffmpeg optional on Mac/Linux

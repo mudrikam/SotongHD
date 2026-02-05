@@ -12,6 +12,7 @@ import subprocess
 from .logger import logger
 from .background_process import ImageProcessor, ProgressSignal, FileUpdateSignal
 from .config_manager import ConfigManager
+from .ffmpeg_downloader import get_ffmpeg_path
 
 
 class VideoUpscalerProcess:
@@ -202,10 +203,15 @@ class VideoUpscalerProcess:
         self._ensure_folder(dest_video_dir)
         output_video = dest_video_dir / source_video_path.name
 
-        ffmpeg_bin = os.path.join(self.base_dir, 'ffmpeg', 'ffmpeg.exe') if sys.platform == 'win32' else os.path.join(self.base_dir, 'ffmpeg', 'ffmpeg')
-        if not os.path.exists(ffmpeg_bin):
-            logger.kesalahan("ffmpeg tidak ditemukan untuk penggabungan video", ffmpeg_bin)
-            raise FileNotFoundError(f"ffmpeg not found: {ffmpeg_bin}")
+        # Use cross-platform ffmpeg path detection
+        ffmpeg_bin = get_ffmpeg_path(self.base_dir)
+        if not ffmpeg_bin or not os.path.exists(ffmpeg_bin):
+            if sys.platform == 'win32':
+                msg = f"ffmpeg not found in bundled directory"
+            else:
+                msg = "ffmpeg not found. Please install ffmpeg using your package manager"
+            logger.kesalahan("ffmpeg tidak ditemukan untuk penggabungan video", ffmpeg_bin or "Not configured")
+            raise FileNotFoundError(msg)
 
         merge_tmp = up_dir / f"merge_{int(time.time())}"
         os.makedirs(str(merge_tmp), exist_ok=True)
