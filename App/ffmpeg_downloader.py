@@ -103,9 +103,10 @@ def is_ffmpeg_present(base_dir: str) -> bool:
 def ensure_ffmpeg_present(base_dir: str) -> bool:
     """
     Ensure ffmpeg is available.
-    On Windows: downloads bundled ffmpeg if not present
+    On Windows: attempts to download bundled ffmpeg if not present
     On Mac/Linux: only checks for system ffmpeg, does NOT download
     Returns True if ffmpeg is available, False otherwise.
+    Never raises exceptions - ffmpeg is optional.
     """
     if is_ffmpeg_present(base_dir):
         print('ffmpeg is present')
@@ -118,14 +119,23 @@ def ensure_ffmpeg_present(base_dir: str) -> bool:
         print('  - macOS: brew install ffmpeg')
         print('  - Ubuntu/Debian: sudo apt install ffmpeg')
         print('  - Fedora: sudo dnf install ffmpeg')
-        print('Video upscale will be disabled.')
+        print('Video upscale will be disabled. Image upscale will work fine.')
         return False
     
-    # Windows: download bundled ffmpeg
-    download_and_extract_ffmpeg(base_dir)
-    if not is_ffmpeg_present(base_dir):
-        raise RuntimeError('ffmpeg installation failed: executable not found after extraction')
-    return True
+    # Windows: attempt to download bundled ffmpeg (non-fatal if fails)
+    try:
+        print('Attempting to download ffmpeg for Windows...')
+        download_and_extract_ffmpeg(base_dir)
+        if not is_ffmpeg_present(base_dir):
+            print('Warning: ffmpeg installation failed - executable not found after extraction')
+            print('Video upscale will be disabled. Image upscale will work fine.')
+            return False
+        print('ffmpeg downloaded successfully')
+        return True
+    except Exception as e:
+        print(f'Warning: Failed to download ffmpeg: {e}')
+        print('Video upscale will be disabled. Image upscale will work fine.')
+        return False
 
 
 def download_and_extract_ffmpeg(base_dir: str) -> None:

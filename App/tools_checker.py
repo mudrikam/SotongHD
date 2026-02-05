@@ -583,8 +583,8 @@ def check_tools(base_dir: str) -> bool:
     """
     Check and ensure required tools are present.
     ChromeDriver is required for all platforms.
-    ffmpeg is required on Windows (will be downloaded), optional on Mac/Linux (uses system).
-    Returns True if ChromeDriver is present (ffmpeg is optional on Mac/Linux).
+    ffmpeg is OPTIONAL for all platforms - video upscale is a bonus feature.
+    Returns True if ChromeDriver is present (ffmpeg is always optional).
     """
     sep = '-' * 40
     print(sep)
@@ -592,6 +592,8 @@ def check_tools(base_dir: str) -> bool:
     print(sep)
     chromedriver_ok = False
     ffmpeg_ok = False
+    
+    # Check ChromeDriver (REQUIRED)
     try:
         chromedriver_ok = is_chromedriver_present(base_dir)
         if not chromedriver_ok:
@@ -600,33 +602,35 @@ def check_tools(base_dir: str) -> bool:
     except Exception as e:
         print(f'Error while ensuring ChromeDriver: {e}')
         raise
+    
+    # Check ffmpeg (OPTIONAL - never block app startup)
     try:
         ffmpeg_ok = is_ffmpeg_present(base_dir)
         if not ffmpeg_ok:
-            # On Mac/Linux, ensure_ffmpeg_present will just print a message and return False
-            # On Windows, it will download ffmpeg
-            result = ensure_ffmpeg_present(base_dir)
-            ffmpeg_ok = is_ffmpeg_present(base_dir)
-            if not ffmpeg_ok and sys.platform != 'win32':
-                # On Mac/Linux, ffmpeg is optional - video upscale will be disabled
-                print('Video upscale support disabled (ffmpeg not available)')
+            print('ffmpeg not found, attempting to setup...')
+            try:
+                # On Mac/Linux: just prints instruction, returns False
+                # On Windows: attempts download
+                result = ensure_ffmpeg_present(base_dir)
+                ffmpeg_ok = is_ffmpeg_present(base_dir)
+            except Exception as setup_error:
+                # ffmpeg setup failed - but this is OK, it's optional
+                print(f'Note: ffmpeg setup failed: {setup_error}')
+                print('Video upscale will be disabled, but image upscale will work fine.')
+                ffmpeg_ok = False
     except Exception as e:
-        if sys.platform == 'win32':
-            # On Windows, ffmpeg download failure is a fatal error
-            print(f'Error while ensuring ffmpeg: {e}')
-            raise
-        else:
-            # On Mac/Linux, just warn and continue
-            print(f'Warning: ffmpeg not available: {e}')
-            print('Video upscale support disabled')
+        # Any ffmpeg error is non-fatal
+        print(f'Warning: ffmpeg check failed: {e}')
+        print('Video upscale will be disabled, but image upscale will work fine.')
+        ffmpeg_ok = False
+    
     print(sep)
     print(f'ChromeDriver present: {chromedriver_ok}')
     print(f'ffmpeg present: {ffmpeg_ok}')
     if not ffmpeg_ok:
         print('Note: Video upscale disabled (ffmpeg not found)')
+        print('      Image upscale is fully functional.')
     print(sep)
-    # Return True if ChromeDriver is OK - ffmpeg is optional on Mac/Linux
-    if sys.platform == 'win32':
-        return chromedriver_ok and ffmpeg_ok
-    else:
-        return chromedriver_ok  # ffmpeg optional on Mac/Linux
+    
+    # Return True if ChromeDriver is OK - ffmpeg is ALWAYS optional
+    return chromedriver_ok

@@ -703,18 +703,27 @@ class SotongHDApp(QMainWindow):
             # Check if video upscale is supported (ffmpeg available)
             if not is_video_upscale_supported(self.base_dir):
                 logger.kesalahan("Video upscale tidak didukung", "ffmpeg tidak tersedia")
+                
+                # Prepare platform-specific message
+                if sys.platform == 'darwin':
+                    install_msg = "Untuk mengaktifkan video upscale:\nbrew install ffmpeg"
+                elif sys.platform == 'linux':
+                    install_msg = "Untuk mengaktifkan video upscale:\nsudo apt install ffmpeg  (Ubuntu/Debian)\natau\nsudo dnf install ffmpeg  (Fedora)"
+                else:  # Windows
+                    install_msg = "ffmpeg gagal di-download atau tidak tersedia.\nCoba restart aplikasi atau download manual."
+                
                 QMessageBox.warning(
                     self,
                     "Video Upscale Tidak Tersedia",
-                    "Video upscale tidak tersedia karena ffmpeg tidak ditemukan.\n\n"
-                    "Untuk mengaktifkan video upscale:\n"
-                    "- macOS: brew install ffmpeg\n"
-                    "- Linux: sudo apt install ffmpeg\n\n"
-                    "Gambar tetap bisa di-upscale."
+                    f"Video upscale tidak tersedia karena ffmpeg tidak ditemukan.\n\n"
+                    f"{install_msg}\n\n"
+                    f"Aplikasi akan memproses file gambar saja.\n"
+                    f"Image upscale tetap berfungsi normal."
                 )
                 # Filter out video files and process only images
                 file_paths = [p for p in file_paths if Path(p).suffix.lower() not in video_exts]
                 if not file_paths:
+                    self.reset_ui_buttons()
                     return
             else:
                 self.start_video_extraction(video_files)
@@ -737,6 +746,18 @@ class SotongHDApp(QMainWindow):
             QTimer.singleShot(100, self.check_processor_thread)
 
     def start_video_extraction(self, video_files):
+        # Double-check ffmpeg availability before starting
+        if not is_video_upscale_supported(self.base_dir):
+            logger.kesalahan("Video extraction aborted", "ffmpeg not available")
+            QMessageBox.critical(
+                self,
+                "Video Upscale Error",
+                "Cannot process video files - ffmpeg is not available.\n\n"
+                "Image upscale is still functional."
+            )
+            self.reset_ui_buttons()
+            return
+        
         if not hasattr(self, 'progress_signal') or self.progress_signal is None:
             self.progress_signal = ProgressSignal()
             self.progress_signal.progress.connect(self.progress_handler.handle_progress)
