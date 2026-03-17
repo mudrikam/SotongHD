@@ -314,7 +314,7 @@ class ImageProcessor:
         self.headless = headless
         self.incognito = incognito
         self.batch_size = 1
-        # Multi-level upscale support (2x, 4x, 6x)
+        # Multi-level upscale support (2x, 4x, 8x)
         self.upscale_level = "2x"
         # Track actual file count for stats (not inflated by multi-pass)
         self.actual_file_count = 0
@@ -485,8 +485,8 @@ class ImageProcessor:
         logger.sukses(f"Cleanup file konversi selesai")
 
     def _get_upscale_passes(self) -> int:
-        """Get number of upscale passes based on upscale_level (2x=1, 4x=2, 6x=3)"""
-        return {"2x": 1, "4x": 2, "6x": 3}.get(self.upscale_level, 1)
+        """Get number of upscale passes based on upscale_level (2x=1, 4x=2, 8x=3)"""
+        return {"2x": 1, "4x": 2, "8x": 3}.get(self.upscale_level, 1)
 
     def _get_output_folder(self, file_path: str) -> str:
         """
@@ -605,7 +605,7 @@ class ImageProcessor:
         Multi-level upscale processing wrapper.
         For 2x: single pass, save directly to UPSCALE folder
         For 4x: two passes (2x -> temp_UPSCALE -> 2x -> UPSCALE)
-        For 6x: three passes (2x -> temp_UPSCALE -> 2x -> temp_UPSCALE -> 2x -> UPSCALE)
+        For 8x: three passes (2x -> temp_UPSCALE -> 2x -> temp_UPSCALE -> 2x -> UPSCALE)
         """
         import shutil
         
@@ -622,7 +622,7 @@ class ImageProcessor:
             self._cleanup_converted_files()
             return
         
-        # Multi-pass processing (4x or 6x)
+        # Multi-pass processing (4x or 8x)
         # Track original file info for each file - keyed by index for consistent ordering
         original_file_info = []
         for f in files:
@@ -694,12 +694,75 @@ class ImageProcessor:
                                     matching_files.append(fpath)
                         
                         if matching_files:
+                            # debug: list matching files
+                            logger.debug(f"Pass {pass_num} - matching files for {orig_name} in {search_dir}: {matching_files}")
                             # Get the most recent file
                             matching_files.sort(key=lambda x: os.path.getmtime(x), reverse=True)
-                            next_files.append(matching_files[0])
+                            chosen = matching_files[0]
+
+                            # If the chosen file has same dimensions as the previous file (no upscale), try to find a newer file
+                            prev_path = current_path
+                            try:
+                                prev_mtime = os.path.getmtime(prev_path) if os.path.exists(prev_path) else 0
+                            except Exception:
+                                prev_mtime = 0
+
+                            # prefer files newer than previous mtime
+                            newer = [f for f in matching_files if os.path.getmtime(f) > prev_mtime]
+                            if newer:
+                                newer.sort(key=lambda x: os.path.getmtime(x), reverse=True)
+                                chosen = newer[0]
+
+                            # log chosen file size/dimensions and compare to prev
+                            try:
+                                from PIL import Image as _Image
+                                try:
+                                    with _Image.open(chosen) as _img:
+                                        _w, _h = _img.size
+                                except Exception:
+                                    _w = _h = None
+
+                                prev_dims = None
+                                try:
+                                    if os.path.exists(prev_path):
+                                        with _Image.open(prev_path) as pimg:
+                                            prev_dims = pimg.size
+                                except Exception:
+                                    prev_dims = None
+
+                                if prev_dims and prev_dims == (_w, _h) and not is_final_pass:
+                                    # no size change, allow short wait for updated file
+                                    extra_wait = 10
+                                    logger.peringatan(f"Tidak ada perubahan dimensi setelah pass {pass_num} untuk {orig_name}, menunggu tambahan {extra_wait}s untuk file baru")
+                                    found_new = False
+                                    start_wait = time.time()
+                                    while time.time() - start_wait < extra_wait:
+                                        time.sleep(1)
+                                        # re-scan directory
+                                        candidate_files = []
+                                        for f in os.listdir(search_dir):
+                                            fpath = os.path.normpath(os.path.join(search_dir, f))
+                                            if os.path.isfile(fpath):
+                                                fname_stem = Path(f).stem
+                                                if fname_stem.startswith(orig_name + "_") or fname_stem == orig_name:
+                                                    candidate_files.append(fpath)
+                                        if not candidate_files:
+                                            continue
+                                        candidate_files.sort(key=lambda x: os.path.getmtime(x), reverse=True)
+                                        if os.path.getmtime(candidate_files[0]) > prev_mtime:
+                                            chosen = candidate_files[0]
+                                            found_new = True
+                                            break
+                                    if not found_new:
+                                        logger.peringatan(f"Tidak ditemukan file baru setelah tunggu tambahan untuk {orig_name}")
+
+                                logger.info(f"Pass {pass_num} selesai untuk {orig_name} -> memilih {chosen} ({_w}x{_h})")
+                            except Exception:
+                                logger.info(f"Pass {pass_num} selesai untuk {orig_name} -> memilih {chosen}")
+
+                            next_files.append(chosen)
                             # Update info for tracking
-                            original_file_info[idx]['current_path'] = matching_files[0]
-                            logger.info(f"Pass {pass_num} selesai untuk {orig_name}", matching_files[0])
+                            original_file_info[idx]['current_path'] = chosen
                         else:
                             logger.kesalahan(f"Tidak ditemukan hasil upscale untuk pass {pass_num}", f"{orig_name} di {search_dir}")
                     else:
@@ -1264,36 +1327,202 @@ class ImageProcessor:
                             'div[data-testid="EnhancedImage"] *[src]',
                             'img[alt*="enhanced"]',
                             'div[data-testid="EnhancedImage"]>div>img',
-                            'div[data-testid="EnhancedImage"] picture img'
+                            'div[data-testid="EnhancedImage"] picture img',
+                            "div[class*='Result-root'] img",
+                            "div[class*='Result-zoomContainer'] img",
+                            "img[class*='Result-img']",
+                            'img'
                         ]
+
+                        def _extract_url_from_element(elem):
+                            attrs = ['src', 'data-src', 'data-original', 'data-lazy', 'data-srcset', 'srcset']
+                            for a in attrs:
+                                try:
+                                    val = elem.get_attribute(a)
+                                except Exception:
+                                    try:
+                                        val = d.execute_script('return arguments[0].getAttribute(arguments[1]);', elem, a)
+                                    except Exception:
+                                        val = None
+                                if not val:
+                                    continue
+                                # srcset/data-srcset -> choose the largest candidate (last)
+                                if 'srcset' in a and isinstance(val, str) and ',' in val:
+                                    parts = [p.strip() for p in val.split(',') if p.strip()]
+                                    for part in reversed(parts):
+                                        candidate = part.split(' ')[0].strip()
+                                        if candidate.startswith('http'):
+                                            return candidate
+                                if isinstance(val, str) and val.startswith('http'):
+                                    return val
+                            return None
 
                         found_image = False
                         image_url = None
                         for selector in possible_selectors:
                             try:
                                 img_elements = d.execute_script(f"return document.querySelectorAll('{selector}');")
-                                if img_elements and len(img_elements) > 0:
-                                    for img in img_elements:
-                                        try:
-                                            src = img.get_attribute('src')
-                                        except Exception:
-                                            try:
-                                                src = d.execute_script('return arguments[0].getAttribute("src");', img)
-                                            except Exception:
-                                                src = None
-
-                                        if src and 'http' in src:
-                                            image_url = src
-                                            found_image = True
-                                            break
-                                    if found_image:
+                                if not img_elements:
+                                    continue
+                                for img in img_elements:
+                                    try:
+                                        src = _extract_url_from_element(img)
+                                    except Exception:
+                                        src = None
+                                    if src:
+                                        image_url = src
+                                        found_image = True
                                         break
+                                if found_image:
+                                    break
                             except Exception:
                                 continue
 
                         if found_image and image_url:
-                            response = requests.get(image_url, stream=True)
-                            if response.status_code == 200:
+                            # Normalize URL
+                            if image_url.startswith('//'):
+                                image_url = 'https:' + image_url
+                            elif not image_url.startswith('http'):
+                                image_url = 'https://' + image_url
+
+                            # Log discovered image URL
+                            logger.info(f"Ditemukan URL gambar: {image_url}")
+                            try:
+                                self.update_progress(f"Ditemukan gambar: {Path(file_path).name}")
+                            except Exception:
+                                pass
+
+                            # If the found URL looks like a placeholder/animation (.lottie or pastatic), poll DOM
+                            def _is_final_image(u: str) -> bool:
+                                if not u:
+                                    return False
+                                lu = u.lower()
+                                image_exts = ('.jpg', '.jpeg', '.png', '.webp', '.gif')
+                                if any(lu.endswith(ext) for ext in image_exts):
+                                    return True
+                                if 'aicdn.picsart.com' in lu:
+                                    return True
+                                return False
+
+                            if not _is_final_image(image_url):
+                                logger.info(f"URL awal bukan final (placeholder), mulai polling: {image_url}")
+                                poll_start = time.time()
+                                poll_timeout = 45
+                                final_url = image_url
+                                while time.time() - poll_start < poll_timeout and not self.should_stop:
+                                    time.sleep(1)
+                                    # try to re-scan selectors for updated image URL
+                                    updated = None
+                                    for selector in possible_selectors:
+                                        try:
+                                            elems = d.execute_script(f"return document.querySelectorAll('{selector}');")
+                                            if not elems:
+                                                continue
+                                            for elem in elems:
+                                                try:
+                                                    candidate = _extract_url_from_element(elem)
+                                                except Exception:
+                                                    candidate = None
+                                                if candidate and _is_final_image(candidate):
+                                                    updated = candidate
+                                                    break
+                                            if updated:
+                                                break
+                                        except Exception:
+                                            continue
+                                    if updated:
+                                        image_url = updated
+                                        logger.info(f"Ditemukan URL final setelah polling: {image_url}")
+                                        break
+                                else:
+                                    logger.peringatan(f"Timeout polling final image URL, akan mencoba mengunduh URL terakhir: {image_url}")
+
+                            # Open image URL in a new tab in the browser (for debugging / session validation)
+                            try:
+                                original_handle = d.current_window_handle
+                            except Exception:
+                                original_handle = None
+
+                            try:
+                                logger.info(f"Membuka tab baru untuk: {image_url}")
+                                try:
+                                    d.execute_script("window.open('about:blank');")
+                                except Exception:
+                                    # some drivers may require a target name
+                                    d.execute_script("window.open('','_blank');")
+                                # switch to newest handle
+                                handles = d.window_handles
+                                if handles:
+                                    new_handle = handles[-1]
+                                    d.switch_to.window(new_handle)
+                                # navigate to image URL
+                                d.get(image_url)
+                                try:
+                                    self.update_progress(f"Membuka gambar di tab baru", percentage=None)
+                                except Exception:
+                                    pass
+                            except Exception as tab_exc:
+                                logger.peringatan(f"Gagal buka tab baru untuk gambar: {str(tab_exc)}")
+
+                            # Prepare headers and download directly (no fallback)
+                            headers = {
+                                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0 Safari/537.36',
+                                'Referer': d.current_url if getattr(d, 'current_url', None) else 'https://picsart.com'
+                            }
+
+                            try:
+                                response = requests.get(image_url, stream=True, headers=headers, timeout=20, allow_redirects=True)
+                            except Exception as req_exc:
+                                logger.kesalahan(f"Gagal mengunduh gambar: {str(req_exc)}", file_name)
+                                response = None
+
+                            if response is not None and response.status_code == 200:
+                                # read full content for validation
+                                try:
+                                    content = response.content
+                                except Exception:
+                                    content = None
+
+                                content_type = (response.headers.get('Content-Type') or '').lower()
+
+                                # simple heuristics to reject placeholders/logos/animations
+                                invalid_download = False
+                                reason = None
+                                low_size_threshold = 2048
+                                url_lower = image_url.lower() if image_url else ''
+
+                                if 'logo' in url_lower or 'favicon' in url_lower or '/assets/' in url_lower:
+                                    invalid_download = True
+                                    reason = 'URL looks like asset/logo'
+                                elif 'lottie' in url_lower or 'pastatic' in url_lower:
+                                    invalid_download = True
+                                    reason = 'Placeholder/animation URL'
+                                elif content_type and not content_type.startswith('image'):
+                                    invalid_download = True
+                                    reason = f'Invalid Content-Type: {content_type}'
+                                elif content is None or len(content) < low_size_threshold:
+                                    invalid_download = True
+                                    reason = f'File too small ({0 if content is None else len(content)} bytes)'
+
+                                if invalid_download:
+                                    logger.peringatan(f"Unduhan ditolak: {reason} - {image_url}")
+                                    # close the debug tab if opened and switch back, but keep driver slot active for further polling
+                                    try:
+                                        if original_handle and original_handle in d.window_handles:
+                                            d.close()
+                                            d.switch_to.window(original_handle)
+                                        else:
+                                            handles2 = d.window_handles
+                                            if len(handles2) > 1:
+                                                try:
+                                                    d.close()
+                                                except Exception:
+                                                    pass
+                                    except Exception:
+                                        pass
+                                    # do NOT mark this slot as failed; continue polling in next loop
+                                    continue
+
                                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                                 # Use original base name (without timestamp suffix) for consistent naming
                                 base_name = self._get_original_base_name(file_path)
@@ -1315,24 +1544,26 @@ class ImageProcessor:
                                         HAS_PIL = False
                                         enhanced_path = os.path.join(output_folder, f"{base_name}_{timestamp}.png")
                                         with open(enhanced_path, 'wb') as f:
-                                            for chunk_data in response.iter_content(1024):
-                                                f.write(chunk_data)
+                                            f.write(content)
 
                                     if HAS_PIL:
                                         temp_path = os.path.join(output_folder, f"{base_name}_temp_{timestamp}.png")
                                         with open(temp_path, 'wb') as f:
-                                            for chunk_data in response.iter_content(1024):
-                                                f.write(chunk_data)
+                                            f.write(content)
 
-                                        img = Image.open(temp_path)
-                                        rgb_img = img.convert('RGB')
-                                        rgb_img.save(enhanced_path, quality=95)
-                                        if os.path.exists(temp_path):
-                                            os.remove(temp_path)
+                                        try:
+                                            with Image.open(temp_path) as img:
+                                                rgb_img = img.convert('RGB')
+                                                rgb_img.save(enhanced_path, quality=95)
+                                        finally:
+                                            try:
+                                                if os.path.exists(temp_path):
+                                                    os.remove(temp_path)
+                                            except Exception:
+                                                pass
                                 else:
                                     with open(enhanced_path, 'wb') as f:
-                                        for chunk_data in response.iter_content(1024):
-                                            f.write(chunk_data)
+                                        f.write(content)
 
                                 chunk_results[idx] = {
                                     "file_path": file_path,
@@ -1347,14 +1578,42 @@ class ImageProcessor:
                                 self.last_activity_time = time.time()
 
                                 logger.sukses(f"Berhasil menyimpan gambar enhancement", enhanced_path)
+                                # Log saved file details for multi-pass debugging
+                                try:
+                                    from PIL import Image as _Image
+                                    try:
+                                        with _Image.open(enhanced_path) as img_tmp:
+                                            w, h = img_tmp.size
+                                            logger.debug(f"Saved enhanced file details: {enhanced_path} ({w}x{h}, {os.path.getsize(enhanced_path)} bytes)")
+                                    except Exception:
+                                        logger.debug(f"Saved enhanced file: {enhanced_path}")
+                                except Exception:
+                                    logger.debug(f"Saved enhanced file: {enhanced_path}")
 
-                                current_num = start + idx + 1
-                                self.update_progress(
-                                    f"Gambar berhasil disimpan: {Path(enhanced_path).name}",
-                                    percentage=int(((current_num) / total_files) * 100),
-                                    current=current_num,
-                                    total=total_files
-                                )
+                                try:
+                                    self.update_progress(f"Gambar berhasil disimpan: {Path(enhanced_path).name}",
+                                                         percentage=int(((start + idx + 1) / total_files) * 100),
+                                                         current=start + idx + 1,
+                                                         total=total_files)
+                                except Exception:
+                                    pass
+
+                                # Close the new tab and switch back
+                                try:
+                                    if original_handle and original_handle in d.window_handles:
+                                        # close current (new) tab
+                                        d.close()
+                                        d.switch_to.window(original_handle)
+                                    else:
+                                        # attempt to close any leftover new handle
+                                        handles2 = d.window_handles
+                                        if len(handles2) > 1:
+                                            try:
+                                                d.close()
+                                            except Exception:
+                                                pass
+                                except Exception:
+                                    pass
 
                                 try:
                                     d.quit()

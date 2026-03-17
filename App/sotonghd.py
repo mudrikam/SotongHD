@@ -101,7 +101,7 @@ class SotongHDApp(QMainWindow):
         self.subtitleLabel.setAlignment(Qt.AlignCenter)
         self.subtitleLabel.setWordWrap(True)
         self.subtitleLabel.setText("""
-            Cara pakai: Pilih batch & level upscale (2x/4x/6x), drag & drop gambar ke sini atau klik tombol di bawah.
+            Cara pakai: Pilih batch & level upscale (2x/4x/8x), drag & drop gambar ke sini atau klik tombol di bawah.
 
             Hasil otomatis tersimpan di folder 'UPSCALE' sesuai lokasi file asli.
             Mode Headless = proses background tanpa jendela browser. Incognito = sesi privat tanpa cache.
@@ -146,9 +146,9 @@ class SotongHDApp(QMainWindow):
 
         self.upscaleLevelCombo = QComboBox(central_widget)
         self.upscaleLevelCombo.setObjectName("upscaleLevelCombo")
-        self.upscaleLevelCombo.addItems(["2x", "4x", "6x"])
+        self.upscaleLevelCombo.addItems(["2x", "4x", "8x"])
         self.upscaleLevelCombo.setCurrentText("2x")
-        self.upscaleLevelCombo.setToolTip("Level upscale: 2x (1 pass), 4x (2 pass), 6x (3 pass)")
+        self.upscaleLevelCombo.setToolTip("Level upscale: 2x (1 pass), 4x (2 pass), 8x (3 pass)")
         self.upscaleLevelCombo.setFixedWidth(60)
         # Auto-save when changed
         self.upscaleLevelCombo.currentTextChanged.connect(self._on_upscale_level_changed)
@@ -1114,7 +1114,7 @@ class SotongHDApp(QMainWindow):
                 
             if self.subtitleLabel:
                 self.subtitleLabel.setText("""
-                Cara pakai: Pilih batch & level upscale (2x/4x/6x), drag & drop gambar ke sini atau klik tombol di bawah.
+                Cara pakai: Pilih batch & level upscale (2x/4x/8x), drag & drop gambar ke sini atau klik tombol di bawah.
 
                 Hasil otomatis tersimpan di folder 'UPSCALE' sesuai lokasi file asli.
                 Mode Headless = proses background tanpa jendela browser. Incognito = sesi privat tanpa cache.

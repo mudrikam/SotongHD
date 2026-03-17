@@ -121,20 +121,20 @@ class ConfigManager:
         self.save_config()
 
     def get_upscale_level(self) -> str:
-        """Get upscale level (2x, 4x, or 6x)"""
+        """Get upscale level (2x, 4x, or 8x)"""
         val = self.config.get("upscale_level", "2x")
-        if val not in ["2x", "4x", "6x"]:
+        if val not in ["2x", "4x", "8x"]:
             return "2x"
         return val
 
     def set_upscale_level(self, level: str):
-        """Set upscale level (2x, 4x, or 6x)"""
-        if level not in ["2x", "4x", "6x"]:
-            raise ValueError("Upscale level must be '2x', '4x', or '6x'")
+        """Set upscale level (2x, 4x, or 8x)"""
+        if level not in ["2x", "4x", "8x"]:
+            raise ValueError("Upscale level must be '2x', '4x', or '8x'")
         self.config["upscale_level"] = level
         self.save_config()
 
     def get_upscale_passes(self) -> int:
-        """Get number of upscale passes based on level (2x=1, 4x=2, 6x=3)"""
+        """Get number of upscale passes based on level (2x=1, 4x=2, 8x=3)"""
         level = self.get_upscale_level()
-        return {"2x": 1, "4x": 2, "6x": 3}.get(level, 1)
+        return {"2x": 1, "4x": 2, "8x": 3}.get(level, 1)
